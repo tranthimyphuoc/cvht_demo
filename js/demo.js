@@ -136,12 +136,13 @@ const DemoKit = {
         weekStart: range.start.toISOString(), weekEnd: range.end.toISOString(),
         status: 'SENT_TO_CVHT',
         formData: {
-          present: 23, total: 25, excused: 1, unexcused: 1,
-          homeworkOk: 22, riskCount: 1,
-          riskNote: 'Trần Quốc Bảo nghỉ 2 buổi, chưa nộp 3 BTVN.',
-          issues: 'Đề nghị CVHT hỗ trợ liên hệ SV mất liên lạc.',
+          1: { point: 2, note: '@all Thông báo lịch học bù thứ Bảy từ GV trên Lark Group.', max: 2 },
+          2: { point: 2, note: 'Động viên nhóm thuyết trình; nhắc SV thụ động tham gia thảo luận.', max: 2 },
+          3: { point: 1, note: 'Trần Quốc Bảo nghỉ 2 buổi, chưa nộp 3 BTVN — đã báo GV/TG.', max: 2 },
+          4: { point: 2, note: 'BC tuần trên Lark Base: 23/25 chuyên cần; 1 SV nguy cơ.', max: 2 },
+          5: { point: 2, note: 'Triển khai yêu cầu bổ sung BTVN trước 17:00, cập nhật GV.', max: 2 },
         },
-        totalScore: null, isLate: false,
+        totalScore: 9, isLate: false,
         summaryNote: 'Lớp ổn định; 1 case nguy cơ cần theo dõi.',
         createdAt: now, submittedAt: now, recipientRole: 'CVHT',
       });

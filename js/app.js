@@ -1165,7 +1165,7 @@
       },
       LOP_TRUONG_NN: {
         title: 'Báo cáo chuyên cần Ngoại ngữ',
-        sub: 'Theo dõi sĩ số, BTVN, SV nguy cơ → gửi CVHT trước 23:00 Thứ 6.',
+        sub: '5 tiêu chí × 2 điểm (/10) → gửi CVHT trước 23:00 Thứ 6.',
         cta: 'Tạo BC chuyên cần →', go: 'report-nn',
       },
       CVHT: {
@@ -1223,7 +1223,7 @@
           <div class="panel-body" style="font-size:.9rem;line-height:1.75;color:var(--muted)">
             ${role() === 'BI_THU' ? '<p><strong style="color:var(--ink)">Bí thư</strong> phụ trách hoạt động, phong trào, truyền thông — gửi báo cáo thẳng <strong style="color:var(--ink)">CVHT</strong>.</p>' : ''}
             ${role() === 'LOP_TRUONG' ? '<p><strong style="color:var(--ink)">Lớp trưởng CN</strong> tổng hợp tình hình lớp — gửi <strong style="color:var(--ink)">CVHT</strong> (song song với Bí thư).</p>' : ''}
-            ${role() === 'LOP_TRUONG_NN' ? '<p><strong style="color:var(--ink)">Lớp trưởng NN</strong> theo dõi chuyên cần, thông báo, SV nguy cơ — gửi CVHT hàng tuần; cuối học phần xét <strong style="color:var(--ink)">R-Point /10</strong>.</p>' : ''}
+            ${role() === 'LOP_TRUONG_NN' ? '<p><strong style="color:var(--ink)">Lớp trưởng NN</strong> báo cáo tuần theo 5 tiêu chí (/10) — gửi CVHT; cuối học phần xét <strong style="color:var(--ink)">R-Point /10</strong>.</p>' : ''}
             ${role() === 'CVHT' ? '<p><strong style="color:var(--ink)">CVHT</strong> nhận BC từ Bí thư + Lớp trưởng (CN/NN), vào lớp quan sát, tổng hợp — gửi <strong style="color:var(--ink)">QLĐT</strong>.</p>' : ''}
             ${role() === 'QLDT' ? '<p><strong style="color:var(--ink)">QLĐT</strong> nhận BC tổng hợp từ CVHT và xem toàn bộ hệ thống (CN + Ngoại ngữ).</p>' : ''}
           </div>
@@ -1867,17 +1867,20 @@
     if (!classList.length) { setPage('BC chuyên cần', ''); $('#content').innerHTML = '<div class="empty">Chưa được gán lớp Ngoại ngữ</div>'; return; }
     const range = Scoring.getWeekRange();
     const cd = Scoring.formatCountdown(Scoring.getWeekDeadline());
+    const criteria = SEED.criteriaNN;
     const editingNn = state.editingReportId
       ? db().reports.find((x) => x.id === state.editingReportId && x.reportKind === 'LOP_TRUONG_NN' && x.status === 'DRAFT')
       : null;
     let selectedId = editingNn?.classId || classList[0].id;
     if (editingNn) state.nnAttachments = [...(editingNn.attachments || [])];
 
+    const scoreOpts = (selected) => [0, 1, 2].map((v) =>
+      `<option value="${v}" ${Number(selected) === v ? 'selected' : ''}>${v} điểm</option>`).join('');
+
     const paint = () => {
       const cls = classList.find((c) => c.id === selectedId) || classList[0];
-      const total = cls.studentCount || 25;
       const f = editingNn?.formData || {};
-      setPage(editingNn ? 'Sửa bản nháp · BC chuyên cần NN' : 'Báo cáo chuyên cần NN', `${classLabel(cls)} · Gửi CVHT`);
+      setPage(editingNn ? 'Sửa bản nháp · BC chuyên cần NN' : 'Báo cáo chuyên cần NN', `${classLabel(cls)} · Gửi CVHT · /10`);
       $('#content').innerHTML = `
         ${flowBanner()}
         ${editingNn ? `<div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">Đang sửa bản <span class="badge badge-muted">Nháp</span>.</div></div>` : ''}
@@ -1898,29 +1901,46 @@
         <div class="cta-hero" style="padding:18px 24px">
           <div>
             <h2>${esc(cls.code)} · ${esc(subjectOf(cls))}</h2>
-            <p>${Scoring.fmtDate(range.start)} – ${Scoring.fmtDate(range.end)} · Hạn T6 23:00 · ${cd.text}</p>
+            <p>${Scoring.fmtDate(range.start)} – ${Scoring.fmtDate(range.end)} · Hạn T6 23:00 · ${cd.text} · <strong>5 tiêu chí × 2 điểm = /10</strong></p>
           </div>
+          <div class="total-score" id="nnTotalScore" style="font-size:1.4rem">0 <small>/ 10</small></div>
         </div>
+        ${criteria.map((c, i) => {
+          const fd = f[c.id] || {};
+          const point = fd.point != null ? fd.point : 2;
+          return `<div class="criterion" style="animation-delay:${i * 0.04}s">
+            <div class="criterion-head">
+              <div>
+                <h3>${c.id}. ${esc(c.title)}</h3>
+                <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5">${esc(c.desc)}</div>
+                <div style="font-size:12px;margin-top:8px;padding:8px 10px;background:var(--surface);border-radius:8px;color:var(--muted);line-height:1.45">
+                  <strong style="color:var(--ink)">Ví dụ:</strong> ${esc(c.example)}
+                </div>
+              </div>
+              <div class="max">Max ${c.max}</div>
+            </div>
+            <div class="criterion-grid" style="grid-template-columns:120px 1fr auto">
+              <div class="field" style="margin:0">
+                <label>Điểm tự đánh giá</label>
+                <select data-nn-point="${c.id}">${scoreOpts(point)}</select>
+              </div>
+              <div class="field" style="margin:0">
+                <label>Mô tả thực hiện tuần này</label>
+                <textarea data-nn-note="${c.id}" rows="2" placeholder="Mô tả việc đã làm…">${esc(fd.note || '')}</textarea>
+              </div>
+              <div class="score-preview" data-nn-preview="${c.id}">${point}/${c.max}</div>
+            </div>
+          </div>`;
+        }).join('')}
         <div class="panel"><div class="panel-body">
-          <div class="grid-2">
-            <div class="field"><label>Sĩ số có mặt</label><input type="number" id="nnPresent" min="0" max="${total}" value="${f.present ?? (total - 2)}" /></div>
-            <div class="field"><label>Tổng sĩ số lớp</label><input type="number" id="nnTotal" value="${f.total ?? total}" disabled /></div>
-            <div class="field"><label>Vắng có phép</label><input type="number" id="nnExcused" min="0" value="${f.excused ?? 1}" /></div>
-            <div class="field"><label>Vắng không phép</label><input type="number" id="nnUnexcused" min="0" value="${f.unexcused ?? 1}" /></div>
-            <div class="field"><label>Nộp BTVN đúng hạn</label><input type="number" id="nnHw" min="0" max="${total}" value="${f.homeworkOk ?? (total - 3)}" /></div>
-            <div class="field"><label>Số SV nguy cơ tuần này</label><input type="number" id="nnRisk" min="0" value="${f.riskCount ?? 1}" /></div>
-          </div>
-          <div class="field"><label>Danh sách / ghi chú SV nguy cơ</label>
-            <textarea id="nnRiskNote" rows="2" placeholder="VD: Trần Quốc Bảo nghỉ 2 buổi, chưa nộp 3 BTVN…">${esc(f.riskNote || '')}</textarea></div>
-          <div class="field"><label>Vấn đề phát sinh & đề xuất</label>
-            <textarea id="nnIssues" rows="2" placeholder="Khó khăn lớp, đề xuất hỗ trợ…">${esc(f.issues || '')}</textarea></div>
-          <div class="field"><label>Tóm tắt gửi CVHT</label>
-            <textarea id="nnSummary" rows="2" placeholder="Tóm tắt tuần…">${esc(editingNn?.summaryNote || '')}</textarea></div>
+          <div class="field"><label>Ghi chú thêm gửi CVHT (tuỳ chọn)</label>
+            <textarea id="nnSummary" rows="2" placeholder="Tóm tắt ngắn / đề xuất hỗ trợ…">${esc(editingNn?.summaryNote || '')}</textarea></div>
           ${attachPanelHtml(state.nnAttachments || [])}
-          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
             ${editingNn ? '<button type="button" class="btn btn-ghost" id="btnCancelNn">Hủy</button>' : ''}
             <button type="button" class="btn btn-ghost" id="btnDraftNn">Lưu nháp</button>
             <button type="button" class="btn btn-primary" id="btnSubmitNn">${editingNn ? 'Gửi đi' : 'Gửi CVHT'}</button>
+            <span style="font-size:13px;color:var(--muted);margin-left:auto">Tổng: <strong id="nnTotalInline">0</strong>/10</span>
           </div>
         </div></div>`;
 
@@ -1939,17 +1959,41 @@
       };
       bindAttachments(() => state.nnAttachments || [], (l) => { state.nnAttachments = l; }, refreshNnAttach);
 
+      const collectForm = () => {
+        const formData = {};
+        let total = 0;
+        criteria.forEach((c) => {
+          const point = Math.min(c.max, Math.max(0, Number($(`[data-nn-point="${c.id}"]`)?.value) || 0));
+          const note = ($(`[data-nn-note="${c.id}"]`)?.value || '').trim();
+          formData[c.id] = { point, note, max: c.max };
+          total += point;
+        });
+        return { formData, total };
+      };
+
+      const refreshScores = () => {
+        const { total } = collectForm();
+        criteria.forEach((c) => {
+          const point = Number($(`[data-nn-point="${c.id}"]`)?.value) || 0;
+          const prev = $(`[data-nn-preview="${c.id}"]`);
+          if (prev) prev.textContent = `${point}/${c.max}`;
+        });
+        const el = $('#nnTotalScore');
+        if (el) el.innerHTML = `${total} <small>/ 10</small>`;
+        const inline = $('#nnTotalInline');
+        if (inline) inline.textContent = total;
+      };
+      $$('[data-nn-point]').forEach((el) => el.addEventListener('change', refreshScores));
+      refreshScores();
+
       const save = (status) => {
-        const formData = {
-          present: Number($('#nnPresent').value) || 0,
-          total: Number($('#nnTotal').value) || total,
-          excused: Number($('#nnExcused').value) || 0,
-          unexcused: Number($('#nnUnexcused').value) || 0,
-          homeworkOk: Number($('#nnHw').value) || 0,
-          riskCount: Number($('#nnRisk').value) || 0,
-          riskNote: $('#nnRiskNote').value,
-          issues: $('#nnIssues').value,
-        };
+        const { formData, total } = collectForm();
+        if (status !== 'DRAFT') {
+          const missing = criteria.filter((c) => !(formData[c.id]?.note || '').trim());
+          if (missing.length) {
+            return toast(`Nhập mô tả thực hiện cho: ${missing.map((c) => c.id).join(', ')}`, 'err');
+          }
+        }
         const now = new Date();
         const isLate = status !== 'DRAFT' && Scoring.isLate(now);
         const attachments = [...(state.nnAttachments || [])];
@@ -1960,6 +2004,7 @@
           if (existing) {
             Object.assign(existing, {
               status, formData, isLate, attachments,
+              totalScore: total,
               summaryNote: $('#nnSummary').value,
               subject: subjectOf(cls),
               updatedAt: now.toISOString(),
@@ -1980,7 +2025,7 @@
               weekEnd: range.end.toISOString(),
               status,
               formData,
-              totalScore: null,
+              totalScore: total,
               isLate,
               summaryNote: $('#nnSummary').value,
               attachments,
@@ -1998,20 +2043,20 @@
               id: Store.uid('al'), actorId: user.id, actorName: user.name,
               action: 'REPORT_SUBMIT', entity: 'Report', entityId: reportId,
               beforeJson: editId ? 'DRAFT' : '',
-              afterJson: JSON.stringify({ kind: 'LOP_TRUONG_NN', classId: cls.id, subject: subjectOf(cls) }),
+              afterJson: JSON.stringify({ kind: 'LOP_TRUONG_NN', classId: cls.id, subject: subjectOf(cls), totalScore: total }),
               at: now.toISOString(),
             });
           }
         });
         if (status !== 'DRAFT') {
-          notify(cvhtNotifyIds(cls.cvhtId), `BC LT Ngoại ngữ — ${cls.code} · ${subjectOf(cls)}`, `${user.name} đã gửi báo cáo chuyên cần tuần.`);
+          notify(cvhtNotifyIds(cls.cvhtId), `BC LT Ngoại ngữ — ${cls.code} · ${subjectOf(cls)}`, `${user.name} đã gửi BC tuần · ${total}/10.`);
           state.nnAttachments = [];
           state.editingReportId = null;
-          toast(attachments.length ? `Đã gửi CVHT · ${attachments.length} đính kèm` : 'Đã gửi CVHT');
+          toast(`Đã gửi CVHT · ${total}/10${attachments.length ? ` · ${attachments.length} đính kèm` : ''}`);
           navigate(`reports/${reportId}`);
         } else {
           state.editingReportId = null;
-          toast('Đã lưu nháp');
+          toast(`Đã lưu nháp · ${total}/10`);
           navigate('reports');
         }
       };
@@ -2858,18 +2903,36 @@
         </div></div>`;
     } else if (r.reportKind === 'LOP_TRUONG_NN') {
       const f = r.formData || {};
-      body = `
-        <div class="kpi-grid">
-          <div class="kpi"><div class="label">Có mặt</div><div class="value">${f.present ?? '—'}/${f.total ?? '—'}</div></div>
-          <div class="kpi warn"><div class="label">Vắng KP</div><div class="value">${f.unexcused ?? 0}</div></div>
-          <div class="kpi"><div class="label">BTVN đúng hạn</div><div class="value">${f.homeworkOk ?? '—'}</div></div>
-          <div class="kpi danger"><div class="label">SV nguy cơ</div><div class="value">${f.riskCount ?? 0}</div></div>
-        </div>
-        <div class="panel"><div class="panel-body">
-          <p><strong>Ghi chú nguy cơ:</strong> ${esc(f.riskNote || '—')}</p>
-          <p style="margin-top:10px"><strong>Vấn đề / đề xuất:</strong> ${esc(f.issues || '—')}</p>
-          <p style="margin-top:10px;color:var(--muted)">${esc(r.summaryNote || '')}</p>
-        </div></div>`;
+      const isNew = SEED.criteriaNN.some((c) => f[c.id] && (f[c.id].point != null || f[c.id].note != null));
+      if (isNew) {
+        body = SEED.criteriaNN.map((c) => {
+          const fd = f[c.id] || {};
+          return `<div class="criterion"><div class="criterion-head">
+            <div><h3>${c.id}. ${esc(c.title)}</h3>
+              <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.45">${esc(fd.note || '—')}</div>
+            </div>
+            <div class="score-preview">${fd.point ?? 0}/${c.max}</div>
+          </div></div>`;
+        }).join('');
+        if (r.summaryNote) {
+          body += `<div class="panel"><div class="panel-body"><strong>Ghi chú thêm:</strong>
+            <p style="margin-top:6px;color:var(--muted)">${esc(r.summaryNote)}</p></div></div>`;
+        }
+      } else {
+        /* Báo cáo cũ (sĩ số / BTVN) — vẫn hiển thị được */
+        body = `
+          <div class="kpi-grid">
+            <div class="kpi"><div class="label">Có mặt</div><div class="value">${f.present ?? '—'}/${f.total ?? '—'}</div></div>
+            <div class="kpi warn"><div class="label">Vắng KP</div><div class="value">${f.unexcused ?? 0}</div></div>
+            <div class="kpi"><div class="label">BTVN đúng hạn</div><div class="value">${f.homeworkOk ?? '—'}</div></div>
+            <div class="kpi danger"><div class="label">SV nguy cơ</div><div class="value">${f.riskCount ?? 0}</div></div>
+          </div>
+          <div class="panel"><div class="panel-body">
+            <p><strong>Ghi chú nguy cơ:</strong> ${esc(f.riskNote || '—')}</p>
+            <p style="margin-top:10px"><strong>Vấn đề / đề xuất:</strong> ${esc(f.issues || '—')}</p>
+            <p style="margin-top:10px;color:var(--muted)">${esc(r.summaryNote || '')}</p>
+          </div></div>`;
+      }
     } else {
       const criteria = r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
       body = criteria.map((c) => {
@@ -2916,7 +2979,7 @@
           <h2>${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</h2>
           <p>${esc(cls?.code || '')} · <strong>${esc(ctx.subjectName)}</strong>${ctx.subjectCode ? ` (${esc(ctx.subjectCode)})` : ''} · ${esc(Curriculum.semesterLabel(ctx.semesterId))} · ${userName(r.reporterId)} · ${Scoring.fmtDateTime(r.createdAt)} · ${statusBadge(r)}</p>
         </div>
-        ${r.totalScore != null ? `<div class="score-ring" style="--p:${r.totalScore}%"><span>${r.totalScore}</span></div>` : ''}
+        ${r.totalScore != null ? `<div class="score-ring" style="--p:${r.reportKind === 'LOP_TRUONG_NN' ? (Number(r.totalScore) / 10) * 100 : r.totalScore}%"><span>${r.totalScore}${r.reportKind === 'LOP_TRUONG_NN' ? '<small style="font-size:.45em">/10</small>' : ''}</span></div>` : ''}
       </div>
       ${semesterPanel}
       ${body}
@@ -4617,7 +4680,7 @@
           <div class="panel-head"><h2>3. Lớp trưởng Ngoại ngữ</h2></div>
           <div class="panel-body" style="font-size:.9rem;line-height:1.7;color:var(--muted)">
             <p>Mỗi lớp NN chỉ có <strong style="color:var(--ink)">01 Lớp trưởng</strong> (không Bí thư).</p>
-            <p style="margin-top:8px">Báo cáo tuần: chuyên cần, BTVN, SV nguy cơ → <strong style="color:var(--ink)">CVHT</strong>.</p>
+            <p style="margin-top:8px">Báo cáo tuần: 5 tiêu chí × 2 điểm (/10) → <strong style="color:var(--ink)">CVHT</strong>.</p>
             <p style="margin-top:8px">Cuối học phần: đánh giá <strong style="color:var(--ink)">R-Point tối đa 10</strong> (Điều 13).</p>
           </div>
         </div>
