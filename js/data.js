@@ -10,11 +10,11 @@ const SEED = {
     { id: 'u_pvh', email: 'viethung@rikkei.edu', password: '123456', name: 'Phạm Viết Hùng', primaryRole: 'CVHT', campus: 'HCM', initials: 'VH', active: true },
     { id: 'u_lxhn', email: 'hoangnguyen@rikkei.edu', password: '123456', name: 'Lưu Xuân Hoàng Nguyên', primaryRole: 'CVHT', campus: 'HCM', initials: 'HN', active: true },
 
-    { id: 'u_lt', email: 'lt@rikkei.edu', password: '123456', name: 'Trần Minh Đức', primaryRole: 'LOP_TRUONG', campus: 'HN', initials: 'Đ', classId: 'c1', active: true },
-    { id: 'u_bt', email: 'bt@rikkei.edu', password: '123456', name: 'Lê Thu Hà', primaryRole: 'BI_THU', campus: 'HN', initials: 'H', classId: 'c1', active: true },
+    { id: 'u_lt', email: 'lt@rikkei.edu', password: '123456', name: 'Lu Nhựt Đình', primaryRole: 'LOP_TRUONG', campus: 'HCM', initials: 'Đ', classId: 'c15', active: true },
+    { id: 'u_bt', email: 'bt@rikkei.edu', password: '123456', name: 'Đào Trọng Trí', primaryRole: 'BI_THU', campus: 'HCM', initials: 'T', classId: 'c15', active: true },
     { id: 'u_ltnn', email: 'lt.nn@rikkei.edu', password: '123456', name: 'Nguyễn Bảo Châu', primaryRole: 'LOP_TRUONG_NN', campus: 'HN', initials: 'BC', classId: 'cnn1', active: true },
 
-    { id: 'u_cvht_demo', email: 'cvht@rikkei.edu', password: '123456', name: 'Nguyễn Thị Như Quỳnh', primaryRole: 'CVHT', campus: 'HN', initials: 'NQ', active: true, aliasOf: 'u_nq' },
+    { id: 'u_cvht_demo', email: 'cvht@rikkei.edu', password: '123456', name: 'Phạm Viết Hùng', primaryRole: 'CVHT', campus: 'HCM', initials: 'VH', active: true, aliasOf: 'u_pvh' },
   ],
 
   campuses: [
@@ -29,13 +29,13 @@ const SEED = {
   ],
 
   classes: [
-    { id: 'c1', code: 'HN-K25-QTKD1', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_nq', ltId: 'u_lt', btId: 'u_bt', semester: '2025-HK2', studentCount: 28, active: true },
+    { id: 'c1', code: 'HN-K25-QTKD1', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_nq', ltId: null, btId: null, semester: '2025-HK2', studentCount: 28, active: true },
     { id: 'c2', code: 'HN-K25-QTKD2', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_nq', ltId: null, btId: null, semester: '2025-HK2', studentCount: 26, active: true },
     { id: 'c3', code: 'HN-K25-QTKD3', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_nq', ltId: null, btId: null, semester: '2025-HK2', studentCount: 27, active: true },
     { id: 'c4', code: 'HN-KS24-CNTT1', majorId: 'CNTT', subject: 'Lập trình Web Frontend', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_mxc', ltId: null, btId: null, semester: '2025-HK2', studentCount: 30, active: true },
     { id: 'c5', code: 'HN-KS24-CNTT2', majorId: 'CNTT', subject: 'Lập trình Backend Java', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_mxc', ltId: null, btId: null, semester: '2025-HK2', studentCount: 29, active: true },
     { id: 'c6', code: 'HN-KS25-CNTT1', majorId: 'CNTT', subject: 'Cơ sở dữ liệu', campusId: 'HN', programType: 'CHUYEN_NGANH', cvhtId: 'u_pnk', ltId: null, btId: null, semester: '2025-HK2', studentCount: 32, active: true },
-    { id: 'c15', code: 'HCM-KS24-CNTT1', majorId: 'CNTT', subject: 'Lập trình Web Frontend', campusId: 'HCM', programType: 'CHUYEN_NGANH', cvhtId: 'u_pvh', ltId: null, btId: null, semester: '2025-HK2', studentCount: 25, note: 'Sáng', active: true },
+    { id: 'c15', code: 'HCM-KS24-CNTT1', majorId: 'CNTT', subject: 'AI Application in Action', campusId: 'HCM', programType: 'CHUYEN_NGANH', cvhtId: 'u_pvh', ltId: 'u_lt', btId: 'u_bt', semester: '2025-HK4', studentCount: 25, note: 'Sáng', active: true },
     { id: 'c16', code: 'HCM-KS25-CNTT5', majorId: 'CNTT', subject: 'Lập trình Backend Java', campusId: 'HCM', programType: 'CHUYEN_NGANH', cvhtId: 'u_pvh', ltId: null, btId: null, semester: '2025-HK2', studentCount: 28, note: 'Chiều', active: true },
     { id: 'c17', code: 'HCM-K25-QTKD1', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HCM', programType: 'CHUYEN_NGANH', cvhtId: 'u_lxhn', ltId: null, btId: null, semester: '2025-HK2', studentCount: 27, note: 'Sáng', active: true },
     { id: 'c18', code: 'HCM-K25-QTKD2', majorId: 'QTKD', subject: 'Quản trị Kinh doanh', campusId: 'HCM', programType: 'CHUYEN_NGANH', cvhtId: 'u_lxhn', ltId: null, btId: null, semester: '2025-HK2', studentCount: 24, note: 'Chiều', active: true },
@@ -94,14 +94,14 @@ const SEED = {
 
   seedAssignmentHistory: [
     {
-      id: 'ah1', classId: 'c1', semester: '2025-HK2', role: 'LOP_TRUONG',
-      fromUserId: null, fromUserName: '—', toUserId: 'u_lt', toUserName: 'Trần Minh Đức',
+      id: 'ah1', classId: 'c15', semester: '2025-HK2', role: 'LOP_TRUONG',
+      fromUserId: null, fromUserName: '—', toUserId: 'u_lt', toUserName: 'Lu Nhựt Đình',
       changedById: 'u_admin', changedByName: 'Phòng Quản lý Đào tạo',
       reason: 'Công nhận Ban cán sự học kỳ 2025-HK2', at: '2026-01-15T09:00:00+07:00',
     },
     {
-      id: 'ah2', classId: 'c1', semester: '2025-HK2', role: 'BI_THU',
-      fromUserId: null, fromUserName: '—', toUserId: 'u_bt', toUserName: 'Lê Thu Hà',
+      id: 'ah2', classId: 'c15', semester: '2025-HK2', role: 'BI_THU',
+      fromUserId: null, fromUserName: '—', toUserId: 'u_bt', toUserName: 'Đào Trọng Trí',
       changedById: 'u_admin', changedByName: 'Phòng Quản lý Đào tạo',
       reason: 'Công nhận Ban cán sự học kỳ 2025-HK2', at: '2026-01-15T09:05:00+07:00',
     },
@@ -115,16 +115,16 @@ const SEED = {
 
   seedRoleHistory: [
     {
-      id: 'rh1', userId: 'u_lt', userName: 'Trần Minh Đức',
-      fromRole: 'SINH_VIEN', toRole: 'LOP_TRUONG', classId: 'c1',
+      id: 'rh1', userId: 'u_lt', userName: 'Lu Nhựt Đình',
+      fromRole: 'SINH_VIEN', toRole: 'LOP_TRUONG', classId: 'c15',
       changedById: 'u_admin', changedByName: 'Phòng Quản lý Đào tạo',
-      reason: 'Công nhận Lớp trưởng HN-K25-QTKD1', at: '2026-01-15T09:00:00+07:00',
+      reason: 'Công nhận Lớp trưởng HCM-KS24-CNTT1', at: '2026-01-15T09:00:00+07:00',
     },
     {
-      id: 'rh2', userId: 'u_bt', userName: 'Lê Thu Hà',
-      fromRole: 'SINH_VIEN', toRole: 'BI_THU', classId: 'c1',
+      id: 'rh2', userId: 'u_bt', userName: 'Đào Trọng Trí',
+      fromRole: 'SINH_VIEN', toRole: 'BI_THU', classId: 'c15',
       changedById: 'u_admin', changedByName: 'Phòng Quản lý Đào tạo',
-      reason: 'Công nhận Bí thư HN-K25-QTKD1', at: '2026-01-15T09:05:00+07:00',
+      reason: 'Công nhận Bí thư HCM-KS24-CNTT1', at: '2026-01-15T09:05:00+07:00',
     },
     {
       id: 'rh3', userId: 'u_ltnn', userName: 'Nguyễn Bảo Châu',
@@ -153,7 +153,7 @@ const SEED = {
   ],
 
   counseling: [
-    { id: 'cn1', studentId: 's3', cvhtId: 'u_nq', note: 'Đã gọi điện, SV báo lý do gia đình. Kế hoạch học bù.', status: 'IN_PROGRESS', createdAt: '2026-03-28T10:00:00+07:00' },
+    { id: 'cn1', studentId: 'simp_246', cvhtId: 'u_pvh', note: 'Đã gọi điện, SV báo lý do gia đình. Kế hoạch học bù.', status: 'IN_PROGRESS', createdAt: '2026-03-28T10:00:00+07:00' },
   ],
 
   escalations: [

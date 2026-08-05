@@ -112,4 +112,82 @@ const Scoring = {
       hour: '2-digit', minute: '2-digit',
     });
   },
+
+  /** BC đã gửi (không nháp) trong phạm vi lớp · HK · môn */
+  filterSemesterReports(reports, { classId, semesterId, subjectCode, reportKind, reporterId }, classLookup) {
+    return (reports || []).filter((r) => {
+      if (r.classId !== classId) return false;
+      if (r.status === 'DRAFT') return false;
+      if (reportKind && r.reportKind !== reportKind) return false;
+      if (r.totalScore == null) return false;
+      const cls = classLookup ? classLookup(r.classId) : null;
+      const ctx = Curriculum.resolveReportContext(r, cls || { semester: semesterId });
+      const sem = r.semesterId || ctx.semesterId;
+      if (semesterId && sem !== semesterId) return false;
+      const code = r.subjectCode || ctx.subjectCode;
+      if (subjectCode && code !== subjectCode) return false;
+      if (reporterId && r.reporterId !== reporterId) return false;
+      return true;
+    });
+  },
+
+  semesterAverage(reports, opts, classLookup) {
+    const list = this.filterSemesterReports(reports, opts, classLookup);
+    if (!list.length) return { avg: null, count: 0, reports: [] };
+    const sum = list.reduce((s, r) => s + (r.totalScore || 0), 0);
+    const avg = Math.round((sum / list.length) * 10) / 10;
+    return { avg, count: list.length, reports: list };
+  },
+
+  /** Ai giữ chức tại thời điểm (theo assignmentHistory) */
+  officerAtTime(assignmentHistory, classId, role, atIso) {
+    const at = atIso || new Date().toISOString();
+    const rows = (assignmentHistory || [])
+      .filter((h) => h.classId === classId && h.role === role)
+      .sort((a, b) => a.at.localeCompare(b.at));
+    let holder = null;
+    rows.forEach((h) => {
+      if (h.at <= at) holder = h.toUserId;
+    });
+    return holder;
+  },
+
+  /** TB học kỳ theo từng kỳ đảm nhiệm (khi đổi LT/BT) */
+  tenureAverages(reports, assignmentHistory, { classId, semesterId, subjectCode, reportKind }, classLookup) {
+    const list = this.filterSemesterReports(reports, { classId, semesterId, subjectCode, reportKind }, classLookup);
+    const byReporter = {};
+    list.forEach((r) => {
+      const key = r.reporterId;
+      if (!byReporter[key]) byReporter[key] = [];
+      byReporter[key].push(r);
+    });
+    return Object.entries(byReporter).map(([uid, reps]) => {
+      const sum = reps.reduce((s, x) => s + x.totalScore, 0);
+      return {
+        reporterId: uid,
+        count: reps.length,
+        avg: Math.round((sum / reps.length) * 10) / 10,
+        from: reps[reps.length - 1]?.weekStart,
+        to: reps[0]?.weekEnd || reps[0]?.submittedAt,
+      };
+    });
+  },
+
+  /** TB tuần lớp: gộp BT + LT (mỗi tuần 1 điểm) — dùng cho rà soát CVHT */
+  classWeeklySemesterAvg(reports, { classId, semesterId, subjectCode }, classLookup) {
+    const bt = this.filterSemesterReports(reports, { classId, semesterId, subjectCode, reportKind: 'BI_THU' }, classLookup);
+    const lt = this.filterSemesterReports(reports, { classId, semesterId, subjectCode, reportKind: 'LOP_TRUONG' }, classLookup);
+    const weekKey = (r) => (r.weekStart || r.submittedAt || '').slice(0, 10);
+    const weeks = new Set([...bt.map(weekKey), ...lt.map(weekKey)]);
+    const scores = [];
+    weeks.forEach((wk) => {
+      const btR = bt.find((r) => weekKey(r) === wk);
+      const ltR = lt.find((r) => weekKey(r) === wk);
+      const parts = [btR?.totalScore, ltR?.totalScore].filter((x) => x != null);
+      if (parts.length) scores.push(parts.reduce((a, b) => a + b, 0) / parts.length);
+    });
+    if (!scores.length) return { avg: null, weekCount: 0 };
+    const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
+    return { avg, weekCount: scores.length };
+  },
 };

@@ -1,12 +1,128 @@
 /* LocalStorage + Audit + Sheets bridge */
 const Store = {
-  KEY: 'cvht_hub_v9',
+  KEY: 'cvht_hub_v15',
+
+  nameToUserId(name, users) {
+    if (!name) return null;
+    const n = name.trim().toLowerCase();
+    const KNOWN = {
+      'nguyễn thị như quỳnh': 'u_nq',
+      'mai xuân chinh': 'u_mxc',
+      'phạm tuấn bình': 'u_ptb',
+      'phạm ngọc kiên': 'u_pnk',
+      'phạm viết hùng': 'u_pvh',
+      'lưu xuân hoàng nguyên': 'u_lxhn',
+      'lu nhựt đình': 'u_lt',
+      'đào trọng trí': 'u_bt',
+      'trần minh đức': 'u_lt',
+      'lê thu hà': 'u_bt',
+    };
+    if (KNOWN[n]) return KNOWN[n];
+    const u = users.find((x) => x.name.trim().toLowerCase() === n);
+    return u?.id || null;
+  },
+
+  mergeStaffData(classes, users) {
+    if (typeof STAFF_IMPORT === 'undefined') return { classes, users };
+
+    const mergedUsers = JSON.parse(JSON.stringify(users));
+    const byName = new Map(mergedUsers.map((u) => [u.name.trim().toLowerCase(), u]));
+
+    STAFF_IMPORT.users.forEach((su) => {
+      const key = su.name.trim().toLowerCase();
+      const ex = byName.get(key);
+      if (ex) {
+        if (!ex.phone && su.phone) ex.phone = su.phone;
+        if (su.primaryRole === 'CVHT' && ex.primaryRole !== 'QLDT') ex.primaryRole = 'CVHT';
+      } else if (!mergedUsers.some((u) => u.id === su.id)) {
+        mergedUsers.push(su);
+        byName.set(key, su);
+      }
+    });
+
+    const officerMap = {};
+    STAFF_IMPORT.officers.forEach((o) => {
+      if (!officerMap[o.classCode]) officerMap[o.classCode] = {};
+      const uid = this.nameToUserId(o.name, mergedUsers);
+      if (!uid) return;
+      if (o.role === 'LOP_TRUONG') officerMap[o.classCode].ltId = uid;
+      if (o.role === 'BI_THU') officerMap[o.classCode].btId = uid;
+    });
+
+    const mergedClasses = classes.map((c) => {
+      const staff = STAFF_IMPORT.classStaff[c.code];
+      const off = officerMap[c.code];
+      const patch = {};
+      if (staff) {
+        const cvhtId = this.nameToUserId(staff.cvht, mergedUsers);
+        if (cvhtId) patch.cvhtId = cvhtId;
+        if (staff.gv) patch.gvName = staff.gv;
+        if (staff.tg) patch.tgName = staff.tg;
+        if (staff.note && !c.note) patch.note = staff.note;
+      }
+      if (off?.ltId) patch.ltId = off.ltId;
+      if (off?.btId) patch.btId = off.btId;
+      return Object.keys(patch).length ? { ...c, ...patch } : c;
+    });
+
+    return { classes: mergedClasses, users: mergedUsers };
+  },
+
+  catalogFromImport() {
+    const baseUsers = JSON.parse(JSON.stringify(SEED.users));
+    if (typeof STUDENT_IMPORT === 'undefined') {
+      const { classes, users } = this.mergeStaffData(JSON.parse(JSON.stringify(SEED.classes)), baseUsers);
+      return {
+        classes,
+        users,
+        students: JSON.parse(JSON.stringify(SEED.students)),
+      };
+    }
+    const seedByCode = Object.fromEntries(SEED.classes.map((c) => [c.code, c]));
+    const useStaff = typeof STAFF_IMPORT !== 'undefined';
+    let classes = STUDENT_IMPORT.classes.map((c) => {
+      const s = seedByCode[c.code];
+      if (!s) {
+        const { cvhtId, ltId, btId, ...rest } = c;
+        return rest;
+      }
+      return {
+        ...c,
+        id: s.id,
+        subject: s.subject || c.subject,
+        note: s.note ?? c.note,
+        level: s.level,
+        semester: s.semester || c.semester,
+        programType: s.programType || c.programType,
+        ...(useStaff ? {} : { ltId: s.ltId, btId: s.btId, cvhtId: s.cvhtId }),
+        ...(useStaff && s.ltId ? { ltId: s.ltId } : {}),
+        ...(useStaff && s.btId ? { btId: s.btId } : {}),
+      };
+    });
+    const codes = new Set(classes.map((c) => c.code));
+    SEED.classes.forEach((c) => {
+      if (!codes.has(c.code)) classes.push(JSON.parse(JSON.stringify(c)));
+    });
+    const idByCode = Object.fromEntries(classes.map((c) => [c.code, c.id]));
+    const students = STUDENT_IMPORT.students.map((s) => ({
+      ...s,
+      classId: idByCode[s.classCode] || s.classId,
+      status: s.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+    }));
+    const merged = this.mergeStaffData(classes, baseUsers);
+    return { classes: merged.classes, users: merged.users, students };
+  },
 
   defaults() {
+    const { classes, students, users } = this.catalogFromImport();
+    const curriculumPrograms = typeof Curriculum !== 'undefined'
+      ? Curriculum.defaultPrograms()
+      : {};
     return {
-      classes: JSON.parse(JSON.stringify(SEED.classes)),
-      users: JSON.parse(JSON.stringify(SEED.users)),
-      students: JSON.parse(JSON.stringify(SEED.students)),
+      classes,
+      users,
+      students,
+      curriculumPrograms,
       reports: [],
       visits: [],
       atRiskNotes: [...SEED.counseling],
@@ -21,17 +137,100 @@ const Store = {
     };
   },
 
+  mergeClassOverrides(catalogClasses, savedClasses) {
+    if (!savedClasses?.length) return catalogClasses;
+    const byId = Object.fromEntries(savedClasses.map((c) => [c.id, c]));
+    return catalogClasses.map((c) => {
+      const s = byId[c.id];
+      if (!s) return c;
+      return {
+        ...c,
+        subject: s.subject ?? c.subject,
+        subjectCode: s.subjectCode ?? c.subjectCode,
+        semester: s.semester ?? c.semester,
+        ltId: s.ltId !== undefined ? s.ltId : c.ltId,
+        btId: s.btId !== undefined ? s.btId : c.btId,
+        cvhtId: s.cvhtId !== undefined ? s.cvhtId : c.cvhtId,
+        note: s.note ?? c.note,
+        gvName: s.gvName ?? c.gvName,
+        tgName: s.tgName ?? c.tgName,
+      };
+    });
+  },
+
+  /** Giữ trạng thái/ghi chú nguy cơ đã cập nhật trên SV import */
+  mergeStudentOverrides(catalogStudents, savedStudents) {
+    if (!savedStudents?.length) return catalogStudents;
+    const byId = Object.fromEntries(savedStudents.map((s) => [s.id, s]));
+    const catalogIds = new Set(catalogStudents.map((s) => s.id));
+    const merged = catalogStudents.map((s) => {
+      const o = byId[s.id];
+      if (!o) return s;
+      return {
+        ...s,
+        status: o.status ?? s.status,
+        statusNote: o.statusNote ?? s.statusNote,
+        riskReason: o.riskReason ?? s.riskReason,
+        riskLevel: o.riskLevel ?? s.riskLevel,
+        statusUpdatedAt: o.statusUpdatedAt ?? s.statusUpdatedAt,
+        statusUpdatedBy: o.statusUpdatedBy ?? s.statusUpdatedBy,
+      };
+    });
+    // SV ghi nhận thủ công (id không có trong catalog)
+    savedStudents.forEach((s) => {
+      if (!catalogIds.has(s.id)) merged.push(s);
+    });
+    return merged;
+  },
+
+  resolveCurriculumPrograms(saved) {
+    if (typeof Curriculum === 'undefined') return {};
+    if (saved?.curriculumPrograms) {
+      const migrated = Curriculum.migrateFromTracks(saved.curriculumPrograms);
+      return migrated || saved.curriculumPrograms;
+    }
+    if (saved?.curriculumTracks) {
+      return Curriculum.migrateFromTracks(saved.curriculumTracks) || Curriculum.defaultPrograms();
+    }
+    return Curriculum.defaultPrograms();
+  },
+
+  applyCurriculum(data) {
+    if (typeof Curriculum !== 'undefined') {
+      Curriculum.use(data.curriculumPrograms || Curriculum.defaultPrograms());
+    }
+    return data;
+  },
+
   load() {
     try {
+      const catalog = this.defaults();
       const raw = localStorage.getItem(this.KEY);
       if (!raw) {
-        const d = this.defaults();
-        this.save(d);
-        return d;
+        this.save(catalog);
+        return this.applyCurriculum(catalog);
       }
-      return { ...this.defaults(), ...JSON.parse(raw) };
+      const saved = JSON.parse(raw);
+      const data = {
+        ...catalog,
+        classes: this.mergeClassOverrides(catalog.classes, saved.classes),
+        students: this.mergeStudentOverrides(catalog.students, saved.students),
+        curriculumPrograms: this.resolveCurriculumPrograms(saved) || catalog.curriculumPrograms,
+        reports: saved.reports || [],
+        visits: saved.visits || [],
+        atRiskNotes: saved.atRiskNotes ?? catalog.atRiskNotes,
+        escalations: saved.escalations ?? catalog.escalations,
+        notifications: saved.notifications ?? catalog.notifications,
+        evaluations: saved.evaluations || [],
+        rpointEvals: saved.rpointEvals || [],
+        lateCounts: saved.lateCounts || {},
+        assignmentHistory: saved.assignmentHistory ?? catalog.assignmentHistory,
+        roleHistory: saved.roleHistory ?? catalog.roleHistory,
+        auditLog: saved.auditLog ?? catalog.auditLog,
+      };
+      return this.applyCurriculum(data);
     } catch {
-      return this.defaults();
+      return this.applyCurriculum(this.defaults());
     }
   },
 
@@ -47,7 +246,7 @@ const Store = {
     const data = this.load();
     fn(data);
     this.save(data);
-    return data;
+    return this.applyCurriculum(data);
   },
 
   reset() {
