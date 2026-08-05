@@ -1470,3 +1470,53 @@ tr:hover td { background: rgba(200,16,46,.015); }
   .trace-result { margin-left: 0; }
   .trace-cell-note { max-width: none; }
 }
+
+/* Full-page boot loader (Sheets pull / first paint) */
+.boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(200, 16, 46, 0.12), transparent 55%),
+    linear-gradient(160deg, #fafafa 0%, #f0f0f2 100%);
+  transition: opacity .28s var(--ease), visibility .28s;
+}
+.boot-loader.is-done {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.boot-loader-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 28px 32px;
+  max-width: 320px;
+}
+.boot-loader-card strong {
+  font-size: 1.05rem;
+  color: var(--ink);
+  font-weight: 700;
+}
+.boot-loader-card span {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.boot-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(200, 16, 46, 0.15);
+  border-top-color: var(--brand);
+  animation: boot-spin .7s linear infinite;
+  margin-bottom: 6px;
+}
+@keyframes boot-spin {
+  to { transform: rotate(360deg); }
+}

@@ -419,6 +419,66 @@ const Store = {
     }) || null;
   },
 
+  /** Soft-delete nhân sự (active=false) + gỡ phân công lớp */
+  deleteUser(actor, userId, reason = '') {
+    if (!userId) throw new Error('Thiếu userId');
+    if (userId === actor.id || userId === this.realId(actor)) {
+      throw new Error('Không thể xóa tài khoản đang đăng nhập');
+    }
+    const target = this.findUser(userId);
+    if (!target) throw new Error('Không tìm thấy người dùng');
+    if (userRole(target) === 'QLDT') throw new Error('Không thể xóa tài khoản QLĐT');
+
+    this.update((d) => {
+      const u = d.users.find((x) => x.id === userId);
+      if (!u) return;
+      u.active = false;
+      d.classes.forEach((c) => {
+        ['cvhtId', 'ltId', 'btId'].forEach((field) => {
+          if (c[field] === userId) c[field] = null;
+        });
+      });
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'USER_DELETE',
+        entity: 'User',
+        entityId: userId,
+        beforeJson: JSON.stringify({ name: u.name, email: u.email, primaryRole: userRole(u), active: true }),
+        afterJson: JSON.stringify({ active: false, reason: reason || 'Xóa nhân sự' }),
+        at: new Date().toISOString(),
+      });
+    });
+    this.queueSheetsPush(['Users', 'Classes', 'AuditLog']);
+  },
+
+  /** Soft-delete lớp (active=false) */
+  deleteClass(actor, classId, reason = '') {
+    if (!classId) throw new Error('Thiếu classId');
+    this.update((d) => {
+      const c = d.classes.find((x) => x.id === classId);
+      if (!c) throw new Error('Không tìm thấy lớp');
+      const before = { code: c.code, active: c.active !== false, cvhtId: c.cvhtId, ltId: c.ltId, btId: c.btId };
+      c.active = false;
+      c.cvhtId = null;
+      c.ltId = null;
+      c.btId = null;
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'CLASS_DELETE',
+        entity: 'Class',
+        entityId: classId,
+        beforeJson: JSON.stringify(before),
+        afterJson: JSON.stringify({ active: false, reason: reason || 'Xóa lớp' }),
+        at: new Date().toISOString(),
+      });
+    });
+    this.queueSheetsPush(['Classes', 'AuditLog']);
+  },
+
   uid(prefix = 'id') {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   },

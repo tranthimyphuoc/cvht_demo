@@ -110,8 +110,16 @@
   }
 
   function db() { return Store.get(); }
-  function allClasses() { return db().classes; }
-  function allUsers() { return db().users; }
+  function allClasses(opts = {}) {
+    const list = db().classes || [];
+    if (opts.includeInactive) return list;
+    return list.filter((c) => c.active !== false);
+  }
+  function allUsers(opts = {}) {
+    const list = db().users || [];
+    if (opts.includeInactive) return list;
+    return list.filter((u) => u.active !== false);
+  }
   function allStudents() { return db().students; }
   function findUser(id) { return Store.findUser(id); }
   function userName(id) { return findUser(id)?.name || '—'; }
@@ -3147,44 +3155,80 @@
   function pagePeople() {
     if (!isAdmin()) return denyAccess();
     if (routeParams.id) return pagePersonDetail(routeParams.id);
-    const q = (state.peopleQ || '').trim().toLowerCase();
-    const staff = allUsers()
-      .filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT')
-      .filter((u) => !q || [u.name, u.email, u.campus, ROLE_LABELS[userRole(u)], u.phone]
-        .join(' ').toLowerCase().includes(q))
-      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'vi'));
-    const total = allUsers().filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT').length;
-    setPage('Nhân sự & vai trò', `${staff.length}${q ? `/${total}` : ''} người`);
-    $('#content').innerHTML = `
-      <div class="admin-toolbar">
-        <span style="font-size:13px;color:var(--muted)">Quản lý CVHT · Lớp trưởng · Bí thư</span>
-        <input type="search" id="peopleQ" class="trace-q" style="flex:1;min-width:180px;max-width:280px;height:34px"
-          placeholder="Tìm tên, email, vai trò…" value="${escAttr(state.peopleQ || '')}" />
-        <button class="btn btn-primary btn-sm" id="btnAddPerson">+ Thêm</button>
-      </div>
-      <div id="peopleList">${staff.length ? staff.map((u) => `
+
+    const paintList = () => {
+      const q = (state.peopleQ || '').trim().toLowerCase();
+      const staff = allUsers()
+        .filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT')
+        .filter((u) => !q || [u.name, u.email, u.campus, ROLE_LABELS[userRole(u)], u.phone]
+          .join(' ').toLowerCase().includes(q))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), 'vi'));
+      const total = allUsers().filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT').length;
+      setPage('Nhân sự & vai trò', `${staff.length}${q ? `/${total}` : ''} người`);
+      const list = $('#peopleList');
+      if (!list) return;
+      list.innerHTML = staff.length ? staff.map((u) => `
         <div class="person-card" onclick="App.go('people/${u.id}')">
-          <div class="avatar">${u.initials}</div>
+          <div class="avatar">${esc(u.initials || '—')}</div>
           <div style="flex:1"><strong>${esc(u.name)}</strong>
             <div style="font-size:12px;color:var(--muted)">${esc(u.email)} · ${esc(u.campus)}</div>
             <div class="role-chips"><span class="badge badge-brand">${ROLE_LABELS[userRole(u)]}</span></div>
           </div>
-          <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+          <div style="display:flex;gap:6px;flex-wrap:wrap" onclick="event.stopPropagation()">
             <button class="btn btn-ghost btn-sm" data-edit-user="${u.id}">Sửa</button>
             <button class="btn btn-primary btn-sm" data-assign-user="${u.id}">Gán lớp</button>
+            <button class="btn btn-danger btn-sm" data-del-user="${u.id}">Xóa</button>
           </div>
-        </div>`).join('') : `<div class="empty panel" style="padding:28px">${q ? 'Không tìm thấy nhân sự khớp' : 'Chưa có nhân sự'}</div>`}</div>`;
+        </div>`).join('') : `<div class="empty panel" style="padding:28px">${q ? 'Không tìm thấy nhân sự khớp' : 'Chưa có nhân sự'}</div>`;
+      $$('[data-edit-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openEditUserModal(b.dataset.editUser); }; });
+      $$('[data-assign-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openAssignPersonModal(b.dataset.assignUser); }; });
+      $$('[data-del-user]').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const u = findUser(b.dataset.delUser);
+          if (!u) return;
+          if (!confirm(`Xóa nhân sự "${u.name}"?\nSẽ gỡ khỏi mọi lớp.`)) return;
+          try {
+            Store.deleteUser(user, u.id, 'Xóa từ Nhân sự & vai trò');
+            toast(`Đã xóa ${u.name}`);
+            paintList();
+          } catch (err) {
+            toast(err.message || 'Không xóa được', 'err');
+          }
+        };
+      });
+    };
+
+    $('#content').innerHTML = `
+      <div class="admin-toolbar">
+        <span style="font-size:13px;color:var(--muted)">Quản lý CVHT · Lớp trưởng · Bí thư</span>
+        <input type="search" id="peopleQ" class="trace-q" style="flex:1;min-width:180px;max-width:320px;height:34px"
+          placeholder="Tìm tên, email, vai trò, campus…" value="${escAttr(state.peopleQ || '')}" autocomplete="off" />
+        <button class="btn btn-primary btn-sm" id="btnAddPerson">+ Thêm</button>
+      </div>
+      <div id="peopleList"></div>`;
+    paintList();
     const pq = $('#peopleQ');
-    if (pq) pq.oninput = () => { state.peopleQ = pq.value; pagePeople(); };
+    if (pq) {
+      let t = null;
+      const run = () => { state.peopleQ = pq.value; paintList(); };
+      pq.addEventListener('compositionend', run);
+      pq.addEventListener('input', (e) => {
+        if (e.isComposing) return;
+        clearTimeout(t);
+        t = setTimeout(run, 120);
+      });
+      pq.focus();
+      const len = pq.value.length;
+      try { pq.setSelectionRange(len, len); } catch { /* ignore */ }
+    }
     $('#btnAddPerson').onclick = openCreateUserModal;
-    $$('[data-edit-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openEditUserModal(b.dataset.editUser); }; });
-    $$('[data-assign-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openAssignPersonModal(b.dataset.assignUser); }; });
   }
 
   function pagePersonDetail(id) {
     if (!isAdmin()) return denyAccess();
     const u = findUser(id);
-    if (!u) return navigate('people');
+    if (!u || u.active === false) return navigate('people');
     const roles = [];
     allClasses().forEach((c) => {
       if (c.cvhtId === u.id) roles.push({ role: 'CVHT', code: c.code, classId: c.id });
@@ -3195,12 +3239,13 @@
     $('#content').innerHTML = `
       <div class="panel"><div class="panel-body" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <div class="avatar" style="width:52px;height:52px">${u.initials}</div>
-        <div style="flex:1"><strong style="font-size:1.1rem">${u.name}</strong>
-          <div style="color:var(--muted);font-size:13px">${u.email}</div>
+        <div style="flex:1"><strong style="font-size:1.1rem">${esc(u.name)}</strong>
+          <div style="color:var(--muted);font-size:13px">${esc(u.email)}</div>
           <div class="role-chips" style="margin-top:6px"><span class="badge badge-brand">${ROLE_LABELS[userRole(u)]}</span></div>
         </div>
         <button class="btn btn-ghost btn-sm" id="btnEdit">Sửa</button>
         <button class="btn btn-primary btn-sm" id="btnAssign">Gán lớp</button>
+        ${userRole(u) !== 'QLDT' ? '<button class="btn btn-danger btn-sm" id="btnDelPerson">Xóa</button>' : ''}
       </div></div>
       <div class="panel"><div class="panel-head"><h2>Phân công hiện tại</h2></div>
         <div class="table-wrap"><table>
@@ -3216,6 +3261,18 @@
       <button class="btn btn-ghost" onclick="App.go('people')">← Quay lại</button>`;
     $('#btnEdit').onclick = () => openEditUserModal(u.id);
     $('#btnAssign').onclick = () => openAssignPersonModal(u.id);
+    const del = $('#btnDelPerson');
+    if (del) {
+      del.onclick = () => {
+        if (!confirm(`Xóa nhân sự "${u.name}"?`)) return;
+        try {
+          Store.deleteUser(user, u.id, 'Xóa từ chi tiết nhân sự');
+          toast('Đã xóa'); navigate('people');
+        } catch (err) {
+          toast(err.message || 'Không xóa được', 'err');
+        }
+      };
+    }
     $$('[data-unassign]').forEach((btn) => {
       btn.onclick = () => {
         const [classId, roleKey] = btn.dataset.unassign.split('|');
@@ -3297,36 +3354,62 @@
   function pageAdmin() {
     if (!isAdmin()) return denyAccess();
     setPage('Phân công lớp', 'CVHT · LT CN · LT NN · Bí thư · Môn theo khóa');
-    $('#content').innerHTML = `
-      <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
-        Mỗi lớp thuộc một <strong style="color:var(--ink)">khóa</strong> (K24, K25…) — chọn học kỳ & môn từ khung chương trình của khóa đó.
-        Quản lý tại <button type="button" class="btn btn-ghost btn-sm" onclick="App.go('subjects')">Khung CT · Khóa</button>
-      </div></div>
-      <div class="panel"><div class="table-wrap"><table>
-        <thead><tr><th>Lớp</th><th>Khóa</th><th>Môn</th><th>Học kỳ</th><th>Loại</th><th>CVHT</th><th>Lớp trưởng</th><th>Bí thư</th><th></th></tr></thead>
-        <tbody>${allClasses().map((c) => {
-          const cur = Curriculum.forClass(c.code, c.semester);
-          const cohort = cur?.cohortLabel || Curriculum.cohortFromClassCode(c.code) || '—';
-          const subLabel = c.subjectCode
-            ? `${c.subject || '—'} (${c.subjectCode})`
-            : subjectOf(c);
-          return `<tr>
-          <td><strong>${c.code}</strong><div style="font-size:11px;color:var(--muted)">${c.campusId}${c.level ? ' · ' + c.level : ''}</div></td>
+
+    const paintAdminTable = () => {
+      const q = (state.adminClassQ || '').trim().toLowerCase();
+      const rows = allClasses().filter((c) => !q || [
+        c.code, c.campusId, c.subject, c.subjectCode, c.level,
+        userName(c.cvhtId), userName(c.ltId), userName(c.btId),
+        Curriculum.cohortFromClassCode(c.code),
+      ].join(' ').toLowerCase().includes(q));
+      const body = $('#adminClassBody');
+      if (!body) return;
+      body.innerHTML = rows.length ? rows.map((c) => {
+        const cur = Curriculum.forClass(c.code, c.semester);
+        const cohort = cur?.cohortLabel || Curriculum.cohortFromClassCode(c.code) || '—';
+        const subLabel = c.subjectCode
+          ? `${c.subject || '—'} (${c.subjectCode})`
+          : subjectOf(c);
+        return `<tr>
+          <td><strong>${esc(c.code)}</strong><div style="font-size:11px;color:var(--muted)">${esc(c.campusId)}${c.level ? ' · ' + esc(c.level) : ''}</div></td>
           <td><span class="badge badge-muted">${esc(cohort)}</span></td>
           <td style="font-size:12.5px">${esc(subLabel)}</td>
           <td style="font-size:12px">${esc(Curriculum.semesterLabel(c.semester || cur?.semesterId))}</td>
           <td><span class="badge ${c.programType === 'NGOAI_NGU' ? 'badge-info' : 'badge-muted'}">${c.programType === 'NGOAI_NGU' ? 'NN' : 'CN'}</span></td>
-          <td>${userName(c.cvhtId)}</td>
-          <td>${c.ltId ? userName(c.ltId) : '—'}</td>
-          <td>${c.programType === 'NGOAI_NGU' ? '—' : (c.btId ? userName(c.btId) : '—')}</td>
-          <td><button class="btn btn-primary btn-sm" data-edit="${c.id}">Sửa</button></td>
+          <td>${esc(userName(c.cvhtId))}</td>
+          <td>${c.ltId ? esc(userName(c.ltId)) : '—'}</td>
+          <td>${c.programType === 'NGOAI_NGU' ? '—' : (c.btId ? esc(userName(c.btId)) : '—')}</td>
+          <td style="display:flex;gap:5px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" data-edit="${c.id}">Sửa</button>
+            <button class="btn btn-danger btn-sm" data-del-class="${c.id}">Xóa</button>
+          </td>
         </tr>`;
-        }).join('')}</tbody>
-      </table></div></div>
-      <button class="btn btn-ghost btn-sm" id="btnReset">Reset dữ liệu local</button>`;
-    $$('[data-edit]').forEach((btn) => {
-      btn.onclick = () => {
-        const c = classById(btn.dataset.edit);
+      }).join('') : `<tr><td colspan="9"><div class="empty">${q ? 'Không tìm thấy lớp khớp' : 'Chưa có lớp'}</div></td></tr>`;
+
+      const countEl = $('#adminClassCount');
+      if (countEl) countEl.textContent = `${rows.length}/${allClasses().length} lớp`;
+
+      $$('[data-edit]').forEach((btn) => {
+        btn.onclick = () => openAdminClassModal(btn.dataset.edit);
+      });
+      $$('[data-del-class]').forEach((btn) => {
+        btn.onclick = () => {
+          const c = classById(btn.dataset.delClass);
+          if (!c) return;
+          if (!confirm(`Xóa lớp ${c.code}?\nLớp sẽ ẩn khỏi hệ thống (soft-delete).`)) return;
+          try {
+            Store.deleteClass(user, c.id, 'Xóa từ Phân công lớp');
+            toast(`Đã xóa lớp ${c.code}`);
+            paintAdminTable();
+          } catch (err) {
+            toast(err.message || 'Không xóa được', 'err');
+          }
+        };
+      });
+    };
+
+    const openAdminClassModal = (classId) => {
+        const c = classById(classId);
         const isNn = c.programType === 'NGOAI_NGU';
         const prog = Curriculum.programForClass(c.code);
         let semesterId = c.semester || prog?.semesters?.[0]?.semesterId || '';
@@ -3408,8 +3491,36 @@
           };
         };
         paintModal();
-      };
-    });
+    };
+
+    $('#content').innerHTML = `
+      <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
+        Mỗi lớp thuộc một <strong style="color:var(--ink)">khóa</strong> (K24, K25…) — chọn học kỳ & môn từ khung chương trình của khóa đó.
+        Quản lý tại <button type="button" class="btn btn-ghost btn-sm" onclick="App.go('subjects')">Khung CT · Khóa</button>
+      </div></div>
+      <div class="admin-toolbar">
+        <span id="adminClassCount" style="font-size:13px;color:var(--muted)"></span>
+        <input type="search" id="adminClassQ" class="trace-q" style="flex:1;min-width:180px;max-width:320px;height:34px"
+          placeholder="Tìm mã lớp, môn, CVHT, campus…" value="${escAttr(state.adminClassQ || '')}" autocomplete="off" />
+      </div>
+      <div class="panel"><div class="table-wrap"><table>
+        <thead><tr><th>Lớp</th><th>Khóa</th><th>Môn</th><th>Học kỳ</th><th>Loại</th><th>CVHT</th><th>Lớp trưởng</th><th>Bí thư</th><th></th></tr></thead>
+        <tbody id="adminClassBody"></tbody>
+      </table></div></div>
+      <button class="btn btn-ghost btn-sm" id="btnReset">Reset dữ liệu local</button>`;
+
+    paintAdminTable();
+    const aq = $('#adminClassQ');
+    if (aq) {
+      let t = null;
+      const run = () => { state.adminClassQ = aq.value; paintAdminTable(); };
+      aq.addEventListener('compositionend', run);
+      aq.addEventListener('input', (e) => {
+        if (e.isComposing) return;
+        clearTimeout(t);
+        t = setTimeout(run, 120);
+      });
+    }
     $('#btnReset').onclick = () => {
       if (!confirm('Reset toàn bộ dữ liệu local?')) return;
       Store.reset(); Store.setSession(user); toast('Đã reset'); location.reload();
@@ -3823,8 +3934,10 @@
       SEED_IMPORT: 'Khởi tạo dữ liệu',
       USER_CREATE: 'Tạo người dùng',
       USER_UPDATE: 'Cập nhật người dùng',
+      USER_DELETE: 'Xóa người dùng',
       ASSIGNMENT_CHANGE: 'Đổi phân công',
       CLASS_SUBJECT: 'Đổi môn học lớp',
+      CLASS_DELETE: 'Xóa lớp',
       STUDENT_STATUS: 'Cập nhật trạng thái SV',
       COUNSEL_NOTE: 'Biên bản tư vấn',
       ESCALATE: 'Chuyển QLĐT',
@@ -4173,13 +4286,24 @@
   window.addEventListener('hashchange', render);
 
   (async () => {
-    if (typeof SheetsAPI !== 'undefined' && SheetsAPI.enabled()) {
-      try {
-        await Store.pullFromSheets();
-      } catch (err) {
-        console.warn('Sheets pull on boot failed', err);
+    const boot = document.getElementById('bootLoader');
+    const hideBoot = () => {
+      if (!boot) return;
+      boot.classList.add('is-done');
+      boot.setAttribute('aria-busy', 'false');
+      setTimeout(() => boot.remove(), 320);
+    };
+    try {
+      if (typeof SheetsAPI !== 'undefined' && SheetsAPI.enabled()) {
+        try {
+          await Store.pullFromSheets();
+        } catch (err) {
+          console.warn('Sheets pull on boot failed', err);
+        }
       }
+      render();
+    } finally {
+      hideBoot();
     }
-    render();
   })();
 })();
