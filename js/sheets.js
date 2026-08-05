@@ -26,7 +26,7 @@ const SheetsAPI = {
   SCHEMA: {
     Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
     Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
-    Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
+    Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'gender', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'active', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
     Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
     Visits: ['id', 'classId', 'cvhtId', 'visitDate', 'observation', 'createdAt', 'demoTag'],
     AtRiskNotes: ['id', 'studentId', 'cvhtId', 'note', 'status', 'createdAt'],
@@ -139,6 +139,10 @@ const SheetsAPI = {
     if (sheet === 'Classes') {
       o.active = this.bool(o.active, true);
       if (o.studentCount !== '' && o.studentCount != null) o.studentCount = Number(o.studentCount);
+    }
+    if (sheet === 'Students') {
+      o.active = this.bool(o.active, true);
+      o.gender = o.gender == null ? '' : String(o.gender);
     }
     if (sheet === 'Reports') {
       o.formData = this.jsonParse(o.formDataJson, {});

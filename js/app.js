@@ -120,7 +120,11 @@
     if (opts.includeInactive) return list;
     return list.filter((u) => u.active !== false);
   }
-  function allStudents() { return db().students; }
+  function allStudents(opts = {}) {
+    const list = db().students || [];
+    if (opts.includeInactive) return list;
+    return list.filter((s) => s.active !== false);
+  }
   function findUser(id) { return Store.findUser(id); }
   function userName(id) { return findUser(id)?.name || '—'; }
   function classById(id) { return allClasses().find((c) => c.id === id); }
@@ -302,6 +306,24 @@
 
   function canEditStudentStatus() {
     return ['LOP_TRUONG', 'LOP_TRUONG_NN', 'BI_THU', 'CVHT', 'QLDT'].includes(role());
+  }
+
+  /** Thêm / sửa / xóa hồ sơ SV trong lớp được phụ trách */
+  function canManageRoster(classId) {
+    if (!canEditStudentStatus()) return false;
+    return !classId || canAccessClass(classId);
+  }
+
+  function staffSelectOpts(selectedId, roles) {
+    return allUsers()
+      .filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)))
+      .filter((u) => !roles || roles.includes(userRole(u)) || u.id === selectedId)
+      .map((u) => `<option value="${u.id}" ${u.id === selectedId ? 'selected' : ''}>${esc(u.name)} (${ROLE_LABELS[userRole(u)]})</option>`)
+      .join('');
+  }
+
+  function studentCountOf(classId) {
+    return allStudents().filter((s) => s.classId === classId).length;
   }
 
   function applyStudentStatus(studentId, { status, note, riskLevel }, opts = {}) {
@@ -1210,6 +1232,234 @@
   }
 
   /* ========== CLASSES ========== */
+  function openClassFormModal(classId) {
+    if (!isAdmin()) return denyAccess();
+    const editing = !!classId;
+    const c = editing ? classById(classId) : null;
+    if (editing && !c) return toast('Không tìm thấy lớp', 'err');
+
+    const isNn = (c?.programType || 'CHUYEN_NGANH') === 'NGOAI_NGU';
+    const campuses = SEED.campuses || [];
+    const majors = SEED.majors || [];
+
+    $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal" style="max-width:560px">
+      <div class="modal-head"><h3>${editing ? `Sửa lớp · ${esc(c.code)}` : 'Thêm lớp mới'}</h3>
+        <button class="btn btn-ghost btn-sm" id="mClose">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Mã lớp *</label>
+          <input id="clCode" value="${escAttr(c?.code || '')}" placeholder="VD: HN-K25-QTKD4" ${editing ? '' : ''} /></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Cơ sở</label>
+            <select id="clCampus">${campuses.map((x) =>
+              `<option value="${x.id}" ${(c?.campusId || 'HN') === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label>Ngành</label>
+            <select id="clMajor">${majors.map((x) =>
+              `<option value="${x.id}" ${(c?.majorId || 'CNTT') === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+        </div>
+        <div class="field"><label>Loại chương trình</label>
+          <select id="clProg">
+            <option value="CHUYEN_NGANH" ${!isNn ? 'selected' : ''}>Chuyên ngành</option>
+            <option value="NGOAI_NGU" ${isNn ? 'selected' : ''}>Ngoại ngữ</option>
+          </select></div>
+        <div class="field"><label>Môn học</label>
+          <input id="clSubject" value="${escAttr(c?.subject || '')}" placeholder="Tên môn" /></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Mã môn (tuỳ chọn)</label>
+            <input id="clSubjectCode" value="${escAttr(c?.subjectCode || '')}" /></div>
+          <div class="field"><label>Học kỳ</label>
+            <input id="clSemester" value="${escAttr(c?.semester || '2025-HK2')}" placeholder="2025-HK2" /></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Giảng viên</label>
+            <input id="clGv" value="${escAttr(c?.gvName || '')}" /></div>
+          <div class="field"><label>Trợ giảng</label>
+            <input id="clTg" value="${escAttr(c?.tgName || '')}" /></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Ghi chú / ca học</label>
+            <input id="clNote" value="${escAttr(c?.note || '')}" placeholder="Sáng / Chiều…" /></div>
+          <div class="field" id="clLevelWrap">
+            <label>Level (NN)</label>
+            <input id="clLevel" value="${escAttr(c?.level || '')}" placeholder="L2, L3…" /></div>
+        </div>
+        <div class="field"><label>CVHT</label>
+          <select id="clCvht"><option value="">— Chưa gán —</option>${staffSelectOpts(c?.cvhtId, ['CVHT', 'QLDT'])}</select></div>
+        <div class="field"><label id="clLtLabel">${isNn ? 'Lớp trưởng NN' : 'Lớp trưởng'}</label>
+          <select id="clLt"><option value="">— Chưa bầu —</option>${staffSelectOpts(c?.ltId, isNn ? ['LOP_TRUONG_NN', 'SINH_VIEN', 'LOP_TRUONG'] : ['LOP_TRUONG', 'SINH_VIEN'])}</select></div>
+        <div class="field" id="clBtWrap" style="${isNn ? 'display:none' : ''}"><label>Bí thư</label>
+          <select id="clBt"><option value="">— Chưa bầu —</option>${staffSelectOpts(c?.btId, ['BI_THU', 'SINH_VIEN'])}</select></div>
+        ${editing ? '<div class="field"><label>Lý do cập nhật</label><input id="clReason" value="Cập nhật thông tin lớp" /></div>' : ''}
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button>
+        <button class="btn btn-primary" id="mSave">${editing ? 'Lưu' : 'Tạo lớp'}</button></div>
+    </div></div>`;
+
+    const close = () => { $('#modalRoot').innerHTML = ''; };
+    $('#mClose').onclick = $('#mCancel').onclick = close;
+    $('#modalOv').onclick = (e) => { if (e.target.id === 'modalOv') close(); };
+
+    const syncProg = () => {
+      const nn = $('#clProg').value === 'NGOAI_NGU';
+      $('#clBtWrap').style.display = nn ? 'none' : '';
+      $('#clLtLabel').textContent = nn ? 'Lớp trưởng NN' : 'Lớp trưởng';
+      $('#clLevelWrap').style.opacity = nn ? '1' : '.55';
+    };
+    $('#clProg').onchange = syncProg;
+    syncProg();
+
+    $('#mSave').onclick = () => {
+      const payload = {
+        code: $('#clCode').value,
+        campusId: $('#clCampus').value,
+        majorId: $('#clMajor').value,
+        programType: $('#clProg').value,
+        subject: $('#clSubject').value,
+        subjectCode: $('#clSubjectCode').value,
+        semester: $('#clSemester').value,
+        gvName: $('#clGv').value,
+        tgName: $('#clTg').value,
+        note: $('#clNote').value,
+        level: $('#clLevel').value,
+        cvhtId: $('#clCvht').value || null,
+        ltId: $('#clLt').value || null,
+        btId: $('#clBt').value || null,
+      };
+      try {
+        if (editing) {
+          Store.updateClass(user, classId, payload, ($('#clReason')?.value || '').trim());
+          toast(`Đã cập nhật lớp ${payload.code || c.code}`);
+          close();
+          if (route === 'classes' && routeParams.id === classId) pageClassDetail(classId);
+          else if (route === 'admin') pageAdmin();
+          else pageClasses();
+        } else {
+          const nc = Store.createClass(user, payload);
+          toast(`Đã tạo lớp ${nc.code}`);
+          close();
+          navigate(`classes/${nc.id}`);
+        }
+      } catch (err) {
+        toast(err.message || 'Không lưu được', 'err');
+      }
+    };
+  }
+
+  function confirmDeleteClass(classId, after) {
+    if (!isAdmin()) return denyAccess();
+    const c = classById(classId);
+    if (!c) return;
+    const n = studentCountOf(classId);
+    if (!confirm(`Xóa lớp ${c.code}?\n${n} sinh viên sẽ bị ẩn theo lớp (soft-delete).`)) return;
+    try {
+      Store.deleteClass(user, classId, 'Xóa từ Danh sách / chi tiết lớp');
+      toast(`Đã xóa lớp ${c.code}`);
+      if (typeof after === 'function') after();
+      else navigate('classes');
+    } catch (err) {
+      toast(err.message || 'Không xóa được', 'err');
+    }
+  }
+
+  function openStudentFormModal(classId, studentId) {
+    if (!canManageRoster(classId)) return denyAccess();
+    const editing = !!studentId;
+    const s = editing ? allStudents().find((x) => x.id === studentId) : null;
+    if (editing && !s) return toast('Không tìm thấy SV', 'err');
+    const clsId = s?.classId || classId;
+    const cls = classById(clsId);
+    const classOpts = (isAdmin() ? allClasses() : classesForUser())
+      .map((c) => `<option value="${c.id}" ${c.id === clsId ? 'selected' : ''}>${esc(c.code)}</option>`)
+      .join('');
+
+    $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal">
+      <div class="modal-head"><h3>${editing ? `Sửa SV · ${esc(s.name)}` : `Thêm sinh viên · ${esc(cls?.code || '')}`}</h3>
+        <button class="btn btn-ghost btn-sm" id="mClose">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Họ tên *</label>
+          <input id="svName" value="${escAttr(s?.name || '')}" /></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Mã SV</label>
+            <input id="svCode" value="${escAttr(s?.studentCode || '')}" placeholder="SV25001" /></div>
+          <div class="field"><label>Giới tính</label>
+            <select id="svGender">
+              <option value="" ${!s?.gender ? 'selected' : ''}>—</option>
+              <option value="Nam" ${s?.gender === 'Nam' ? 'selected' : ''}>Nam</option>
+              <option value="Nữ" ${s?.gender === 'Nữ' ? 'selected' : ''}>Nữ</option>
+              <option value="Khác" ${s?.gender === 'Khác' ? 'selected' : ''}>Khác</option>
+            </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Email</label>
+            <input id="svEmail" type="email" value="${escAttr(s?.email || '')}" /></div>
+          <div class="field"><label>SĐT</label>
+            <input id="svPhone" value="${escAttr(s?.phone || '')}" /></div>
+        </div>
+        <div class="field"><label>Lớp</label>
+          <select id="svClass"${editing && !isAdmin() ? ' disabled' : ''}>${classOpts}</select></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Tình trạng học</label>
+            <input id="svEnroll" value="${escAttr(s?.enrollStatus || 'Đang theo học')}" /></div>
+          <div class="field"><label>Trạng thái theo dõi</label>
+            <select id="svStatus">
+              <option value="ACTIVE" ${(s?.status || 'ACTIVE') === 'ACTIVE' ? 'selected' : ''}>Ổn định</option>
+              <option value="WATCH" ${s?.status === 'WATCH' ? 'selected' : ''}>Có vấn đề</option>
+              <option value="AT_RISK" ${s?.status === 'AT_RISK' ? 'selected' : ''}>Nguy cơ</option>
+              <option value="INACTIVE" ${s?.status === 'INACTIVE' ? 'selected' : ''}>Tạm ngưng</option>
+            </select></div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button>
+        <button class="btn btn-primary" id="mSave">${editing ? 'Lưu' : 'Thêm SV'}</button></div>
+    </div></div>`;
+
+    const close = () => { $('#modalRoot').innerHTML = ''; };
+    $('#mClose').onclick = $('#mCancel').onclick = close;
+    $('#modalOv').onclick = (e) => { if (e.target.id === 'modalOv') close(); };
+
+    $('#mSave').onclick = () => {
+      const payload = {
+        name: $('#svName').value,
+        studentCode: $('#svCode').value,
+        gender: $('#svGender').value,
+        email: $('#svEmail').value,
+        phone: $('#svPhone').value,
+        classId: $('#svClass').value,
+        enrollStatus: $('#svEnroll').value,
+        status: $('#svStatus').value,
+      };
+      try {
+        if (editing) {
+          Store.updateStudent(user, studentId, payload, 'Cập nhật hồ sơ SV');
+          toast('Đã cập nhật sinh viên');
+        } else {
+          Store.createStudent(user, payload);
+          toast(`Đã thêm ${payload.name}`);
+        }
+        close();
+        if (route === 'classes' && routeParams.id) pageClassDetail(routeParams.id);
+        else if (payload.classId) navigate(`classes/${payload.classId}`);
+        else render();
+      } catch (err) {
+        toast(err.message || 'Không lưu được', 'err');
+      }
+    };
+  }
+
+  function confirmDeleteStudent(studentId) {
+    const s = allStudents().find((x) => x.id === studentId);
+    if (!s) return;
+    if (!canManageRoster(s.classId)) return denyAccess();
+    if (!confirm(`Xóa sinh viên "${s.name}" khỏi lớp?`)) return;
+    try {
+      Store.deleteStudent(user, studentId, 'Xóa từ danh sách lớp');
+      toast('Đã xóa sinh viên');
+      if (route === 'classes' && routeParams.id) pageClassDetail(routeParams.id);
+      else render();
+    } catch (err) {
+      toast(err.message || 'Không xóa được', 'err');
+    }
+  }
+
   function pageClasses() {
     if (routeParams.id) return pageClassDetail(routeParams.id);
     let classes = classesForUser();
@@ -1231,14 +1481,20 @@
 
     const classCard = (c, i) => `
       <div class="class-card" style="animation-delay:${i * 0.03}s" onclick="App.go('classes/${c.id}')">
-        <div class="code">${c.code}</div>
-        <div class="meta"><strong style="color:var(--ink)">${esc(subjectOf(c))}</strong> · ${majorName(c.majorId)} · ${c.campusId === 'HN' ? 'Hà Nội' : 'HCM'} · ${c.programType === 'NGOAI_NGU' ? 'Ngoại ngữ' : 'Chuyên ngành'} · ${c.semester}${c.note || c.level ? ' · ' + (c.level || c.note) : ''}</div>
+        <div class="code">${esc(c.code)}</div>
+        <div class="meta"><strong style="color:var(--ink)">${esc(subjectOf(c))}</strong> · ${esc(majorName(c.majorId))} · ${c.campusId === 'HN' ? 'Hà Nội' : 'HCM'} · ${c.programType === 'NGOAI_NGU' ? 'Ngoại ngữ' : 'Chuyên ngành'} · ${esc(c.semester)}${c.note || c.level ? ' · ' + esc(c.level || c.note) : ''}</div>
         <div class="people">
-          <span class="badge badge-brand">CVHT: ${shortName(c.cvhtId)}</span>
-          ${c.ltId ? `<span class="badge badge-muted">${c.programType === 'NGOAI_NGU' ? 'LT NN' : 'LT'}: ${shortName(c.ltId)}</span>` : ''}
-          ${c.btId ? `<span class="badge badge-muted">BT: ${shortName(c.btId)}</span>` : ''}
+          <span class="badge badge-brand">CVHT: ${esc(shortName(c.cvhtId))}</span>
+          ${c.ltId ? `<span class="badge badge-muted">${c.programType === 'NGOAI_NGU' ? 'LT NN' : 'LT'}: ${esc(shortName(c.ltId))}</span>` : ''}
+          ${c.btId ? `<span class="badge badge-muted">BT: ${esc(shortName(c.btId))}</span>` : ''}
         </div>
-        <div style="margin-top:12px;font-size:12.5px;color:var(--muted)">${c.studentCount} sinh viên</div>
+        <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12.5px;color:var(--muted)">${studentCountOf(c.id)} sinh viên</span>
+          ${isAdmin() ? `<div class="class-card-actions" onclick="event.stopPropagation()">
+            <button type="button" class="btn btn-ghost btn-sm" data-edit-class="${c.id}">Sửa</button>
+            <button type="button" class="btn btn-danger btn-sm" data-del-class="${c.id}">Xóa</button>
+          </div>` : ''}
+        </div>
       </div>`;
 
     let bodyHtml = '';
@@ -1276,10 +1532,25 @@
       bodyHtml = `<div class="grid-3">${classes.map((c, i) => classCard(c, i)).join('') || `<div class="empty" style="grid-column:1/-1">${esc(emptyMsg)}</div>`}</div>`;
     }
 
-    /* Bộ lọc nằm ở sidebar (dropdown) — tránh trùng trên trang */
     $('#content').innerHTML = `
       ${flowBanner()}
+      ${isAdmin() ? `<div class="admin-toolbar">
+        <span style="font-size:13px;color:var(--muted)">Quản lý lớp · sĩ số · phân công</span>
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddClass">+ Thêm lớp</button>
+      </div>` : ''}
       ${bodyHtml}`;
+
+    const addBtn = $('#btnAddClass');
+    if (addBtn) addBtn.onclick = () => openClassFormModal(null);
+    $$('[data-edit-class]').forEach((b) => {
+      b.onclick = (e) => { e.stopPropagation(); openClassFormModal(b.dataset.editClass); };
+    });
+    $$('[data-del-class]').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        confirmDeleteClass(b.dataset.delClass, () => pageClasses());
+      };
+    });
   }
 
   function pageClassDetail(id) {
@@ -1290,54 +1561,88 @@
     const reports = reportsForViewer()
       .filter((r) => r.classId === id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const canRoster = canManageRoster(id);
+    const canStatus = canEditStudentStatus();
 
     setPage(c.code, `${subjectOf(c)} · ${majorName(c.majorId)} · ${c.campusId}`);
     $('#content').innerHTML = `
+      ${isAdmin() ? `<div class="admin-toolbar" style="margin-bottom:14px">
+        <span style="font-size:13px;color:var(--muted)">Thông tin lớp · GV / TG · phân công</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnEditClass">Sửa lớp</button>
+          <button type="button" class="btn btn-danger btn-sm" id="btnDelClass">Xóa lớp</button>
+        </div>
+      </div>` : ''}
       <div class="kpi-grid">
         <div class="kpi"><div class="label">Môn học</div><div class="value" style="font-size:.95rem">${esc(subjectOf(c))}</div></div>
         <div class="kpi"><div class="label">Giảng viên</div><div class="value" style="font-size:.95rem">${esc(c.gvName || '—')}</div></div>
         <div class="kpi"><div class="label">Trợ giảng</div><div class="value" style="font-size:.95rem">${esc(c.tgName || '—')}</div></div>
-        <div class="kpi"><div class="label">CVHT</div><div class="value" style="font-size:.95rem">${userName(c.cvhtId)}</div></div>
-        <div class="kpi"><div class="label">${c.programType === 'NGOAI_NGU' ? 'Lớp trưởng NN' : 'Lớp trưởng'}</div><div class="value" style="font-size:.95rem">${c.ltId ? userName(c.ltId) : 'Chưa bầu'}</div></div>
-        <div class="kpi"><div class="label">${c.programType === 'NGOAI_NGU' ? 'Sĩ số' : 'Bí thư'}</div><div class="value" style="font-size:.95rem">${c.programType === 'NGOAI_NGU' ? c.studentCount : (c.btId ? userName(c.btId) : 'Chưa bầu')}</div></div>
+        <div class="kpi"><div class="label">CVHT</div><div class="value" style="font-size:.95rem">${esc(userName(c.cvhtId))}</div></div>
+        <div class="kpi"><div class="label">${c.programType === 'NGOAI_NGU' ? 'Lớp trưởng NN' : 'Lớp trưởng'}</div><div class="value" style="font-size:.95rem">${c.ltId ? esc(userName(c.ltId)) : 'Chưa bầu'}</div></div>
+        <div class="kpi"><div class="label">${c.programType === 'NGOAI_NGU' ? 'Sĩ số' : 'Bí thư'}</div><div class="value" style="font-size:.95rem">${c.programType === 'NGOAI_NGU' ? students.length : (c.btId ? esc(userName(c.btId)) : 'Chưa bầu')}</div></div>
       </div>
       <div class="tabs">
-        <button class="tab active" data-tab="sv">Sinh viên</button>
+        <button class="tab active" data-tab="sv">Sinh viên (${students.length})</button>
         <button class="tab" data-tab="rp">Báo cáo</button>
       </div>
       <div id="tabBody"></div>`;
 
+    const editCls = $('#btnEditClass');
+    if (editCls) editCls.onclick = () => openClassFormModal(id);
+    const delCls = $('#btnDelClass');
+    if (delCls) delCls.onclick = () => confirmDeleteClass(id);
+
     const show = (tab) => {
       $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
       if (tab === 'sv') {
-        const canEdit = canEditStudentStatus();
         $('#tabBody').innerHTML = `<div class="panel">
           <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <h2 style="margin:0;font-size:.95rem">Danh sách sinh viên</h2>
-            ${canEdit ? `<button type="button" class="btn btn-primary btn-sm" id="btnMarkRisk">+ Ghi nhận trạng thái</button>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${canRoster ? `<button type="button" class="btn btn-primary btn-sm" id="btnAddSv">+ Thêm SV</button>` : ''}
+              ${canStatus ? `<button type="button" class="btn btn-ghost btn-sm" id="btnMarkRisk">Ghi nhận trạng thái</button>` : ''}
+            </div>
           </div>
           <div class="table-wrap"><table>
-          <thead><tr><th>Họ tên</th><th>Email</th><th>Giới tính</th><th>Trạng thái</th><th>Ghi chú</th>${canEdit ? '<th></th>' : ''}</tr></thead>
-          <tbody>${(students.length ? students : [{ name: 'Chưa có SV', email: '—', gender: '—', status: 'ACTIVE' }]).map((s) => `
+          <thead><tr>
+            <th>Họ tên</th><th>Email</th><th>Giới tính</th><th>Trạng thái</th><th>Ghi chú</th>
+            ${canRoster || canStatus ? '<th></th>' : ''}
+          </tr></thead>
+          <tbody>${students.length ? students.map((s) => `
             <tr>
               <td><strong>${esc(s.name)}</strong>${s.studentCode ? `<div style="font-size:12px;color:var(--muted)">${esc(s.studentCode)}</div>` : ''}</td>
               <td style="font-size:12.5px">${esc(s.email || '—')}</td>
               <td>${esc(s.gender || '—')}</td>
               <td>${studentStatusBadge(s)}</td>
               <td style="font-size:13px;color:var(--muted);max-width:220px">${esc(studentNoteText(s) || '—')}</td>
-              ${canEdit && s.id ? `<td><button type="button" class="btn btn-ghost btn-sm" data-status-sv="${s.id}">Cập nhật</button></td>` : (canEdit ? '<td></td>' : '')}
-            </tr>`).join('')}
+              ${canRoster || canStatus ? `<td style="white-space:nowrap">
+                <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+                  ${canRoster ? `<button type="button" class="btn btn-ghost btn-sm" data-edit-sv="${s.id}">Sửa</button>` : ''}
+                  ${canStatus ? `<button type="button" class="btn btn-ghost btn-sm" data-status-sv="${s.id}">TT</button>` : ''}
+                  ${canRoster ? `<button type="button" class="btn btn-danger btn-sm" data-del-sv="${s.id}">Xóa</button>` : ''}
+                </div>
+              </td>` : ''}
+            </tr>`).join('') : `<tr><td colspan="${canRoster || canStatus ? 6 : 5}"><div class="empty">${canRoster ? 'Chưa có SV — bấm + Thêm SV' : 'Chưa có SV'}</div></td></tr>`}
           </tbody></table></div>
-          ${canEdit ? `<div class="panel-body" style="padding:10px 16px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line)">
-            LT / Bí thư / CVHT ghi nhận: <span class="badge badge-ok">Ổn định</span>
+          ${canStatus ? `<div class="panel-body" style="padding:10px 16px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line)">
+            <strong style="color:var(--ink)">Sửa</strong> = hồ sơ SV ·
+            <strong style="color:var(--ink)">TT</strong> = trạng thái theo dõi
+            (<span class="badge badge-ok">Ổn định</span>
             <span class="badge badge-warn">Có vấn đề</span>
-            <span class="badge badge-danger">Nguy cơ</span>
-            — ghi chú lưu trên hồ sơ SV và vào mục <strong>SV nguy cơ</strong>.
+            <span class="badge badge-danger">Nguy cơ</span>).
           </div>` : ''}
         </div>`;
         $$('[data-status-sv]').forEach((b) => {
           b.onclick = () => openStudentStatusModal(b.dataset.statusSv, id);
         });
+        $$('[data-edit-sv]').forEach((b) => {
+          b.onclick = () => openStudentFormModal(id, b.dataset.editSv);
+        });
+        $$('[data-del-sv]').forEach((b) => {
+          b.onclick = () => confirmDeleteStudent(b.dataset.delSv);
+        });
+        const addSv = $('#btnAddSv');
+        if (addSv) addSv.onclick = () => openStudentFormModal(id, null);
         const markBtn = $('#btnMarkRisk');
         if (markBtn) markBtn.onclick = () => openPickStudentStatusModal(id);
       } else {
@@ -3502,6 +3807,7 @@
         <span id="adminClassCount" style="font-size:13px;color:var(--muted)"></span>
         <input type="search" id="adminClassQ" class="trace-q" style="flex:1;min-width:180px;max-width:320px;height:34px"
           placeholder="Tìm mã lớp, môn, CVHT, campus…" value="${escAttr(state.adminClassQ || '')}" autocomplete="off" />
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddClassAdmin">+ Thêm lớp</button>
       </div>
       <div class="panel"><div class="table-wrap"><table>
         <thead><tr><th>Lớp</th><th>Khóa</th><th>Môn</th><th>Học kỳ</th><th>Loại</th><th>CVHT</th><th>Lớp trưởng</th><th>Bí thư</th><th></th></tr></thead>
@@ -3510,6 +3816,8 @@
       <button class="btn btn-ghost btn-sm" id="btnReset">Reset dữ liệu local</button>`;
 
     paintAdminTable();
+    const addAdmin = $('#btnAddClassAdmin');
+    if (addAdmin) addAdmin.onclick = () => openClassFormModal(null);
     const aq = $('#adminClassQ');
     if (aq) {
       let t = null;
@@ -3936,9 +4244,14 @@
       USER_UPDATE: 'Cập nhật người dùng',
       USER_DELETE: 'Xóa người dùng',
       ASSIGNMENT_CHANGE: 'Đổi phân công',
+      CLASS_CREATE: 'Tạo lớp',
+      CLASS_UPDATE: 'Cập nhật lớp',
       CLASS_SUBJECT: 'Đổi môn học lớp',
       CLASS_DELETE: 'Xóa lớp',
       STUDENT_STATUS: 'Cập nhật trạng thái SV',
+      STUDENT_CREATE: 'Thêm sinh viên',
+      STUDENT_UPDATE: 'Cập nhật sinh viên',
+      STUDENT_DELETE: 'Xóa sinh viên',
       COUNSEL_NOTE: 'Biên bản tư vấn',
       ESCALATE: 'Chuyển QLĐT',
       ESCALATE_NOTE: 'Ghi chú case QLĐT',

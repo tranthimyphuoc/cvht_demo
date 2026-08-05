@@ -146,6 +146,9 @@ const Store = {
       if (!s) return { ...c };
       return {
         ...c,
+        code: s.code ?? c.code,
+        majorId: s.majorId ?? c.majorId,
+        campusId: s.campusId ?? c.campusId,
         subject: s.subject ?? c.subject,
         subjectCode: s.subjectCode ?? c.subjectCode,
         semester: s.semester ?? c.semester,
@@ -187,9 +190,11 @@ const Store = {
         name: o.name ?? s.name,
         email: o.email ?? s.email,
         phone: o.phone ?? s.phone,
+        gender: o.gender ?? s.gender,
         studentCode: o.studentCode ?? s.studentCode,
         classId: o.classId ?? s.classId,
         enrollStatus: o.enrollStatus ?? s.enrollStatus,
+        active: o.active !== undefined ? o.active : s.active,
       };
     });
     savedStudents.forEach((s) => {
@@ -453,7 +458,7 @@ const Store = {
     this.queueSheetsPush(['Users', 'Classes', 'AuditLog']);
   },
 
-  /** Soft-delete lớp (active=false) */
+  /** Soft-delete lớp (active=false) + ẩn SV thuộc lớp */
   deleteClass(actor, classId, reason = '') {
     if (!classId) throw new Error('Thiếu classId');
     this.update((d) => {
@@ -464,6 +469,10 @@ const Store = {
       c.cvhtId = null;
       c.ltId = null;
       c.btId = null;
+      c.studentCount = 0;
+      (d.students || []).forEach((s) => {
+        if (s.classId === classId) s.active = false;
+      });
       d.auditLog.unshift({
         id: this.uid('al'),
         actorId: actor.id,
@@ -476,7 +485,239 @@ const Store = {
         at: new Date().toISOString(),
       });
     });
+    this.queueSheetsPush(['Classes', 'Students', 'AuditLog']);
+  },
+
+  recountClassStudents(d, classId) {
+    if (!classId || !d?.classes) return;
+    const cls = d.classes.find((c) => c.id === classId);
+    if (!cls) return;
+    cls.studentCount = (d.students || []).filter((s) => s.classId === classId && s.active !== false).length;
+  },
+
+  createClass(actor, payload = {}) {
+    const code = String(payload.code || '').trim().toUpperCase();
+    if (!code) throw new Error('Nhập mã lớp');
+    const existing = this.get().classes.find((c) => String(c.code || '').toUpperCase() === code && c.active !== false);
+    if (existing) throw new Error(`Mã lớp ${code} đã tồn tại`);
+
+    const id = this.uid('c');
+    const nc = {
+      id,
+      code,
+      majorId: payload.majorId || 'CNTT',
+      subject: (payload.subject || '').trim() || '',
+      subjectCode: (payload.subjectCode || '').trim() || '',
+      campusId: payload.campusId || 'HN',
+      programType: payload.programType || 'CHUYEN_NGANH',
+      semester: (payload.semester || '').trim() || '2025-HK2',
+      level: (payload.level || '').trim() || '',
+      note: (payload.note || '').trim() || '',
+      studentCount: 0,
+      active: true,
+      cvhtId: payload.cvhtId || null,
+      ltId: payload.ltId || null,
+      btId: payload.programType === 'NGOAI_NGU' ? null : (payload.btId || null),
+      gvName: (payload.gvName || '').trim() || '',
+      tgName: (payload.tgName || '').trim() || '',
+    };
+
+    this.update((d) => {
+      d.classes.push(nc);
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'CLASS_CREATE',
+        entity: 'Class',
+        entityId: id,
+        beforeJson: '',
+        afterJson: JSON.stringify({
+          code: nc.code, campusId: nc.campusId, majorId: nc.majorId,
+          subject: nc.subject, programType: nc.programType, semester: nc.semester,
+        }),
+        at: new Date().toISOString(),
+      });
+    });
     this.queueSheetsPush(['Classes', 'AuditLog']);
+    return nc;
+  },
+
+  updateClass(actor, classId, payload = {}, reason = '') {
+    if (!classId) throw new Error('Thiếu classId');
+    let updated = null;
+    this.update((d) => {
+      const c = d.classes.find((x) => x.id === classId);
+      if (!c) throw new Error('Không tìm thấy lớp');
+      const nextCode = payload.code != null ? String(payload.code).trim().toUpperCase() : c.code;
+      if (nextCode && nextCode !== c.code) {
+        const clash = d.classes.find((x) => x.id !== classId && String(x.code || '').toUpperCase() === nextCode && x.active !== false);
+        if (clash) throw new Error(`Mã lớp ${nextCode} đã tồn tại`);
+      }
+      const before = {
+        code: c.code, majorId: c.majorId, campusId: c.campusId, subject: c.subject,
+        subjectCode: c.subjectCode, semester: c.semester, programType: c.programType,
+        level: c.level, note: c.note, gvName: c.gvName, tgName: c.tgName,
+        cvhtId: c.cvhtId, ltId: c.ltId, btId: c.btId,
+      };
+      if (payload.code != null) c.code = nextCode;
+      if (payload.majorId != null) c.majorId = payload.majorId;
+      if (payload.campusId != null) c.campusId = payload.campusId;
+      if (payload.subject != null) c.subject = String(payload.subject).trim();
+      if (payload.subjectCode != null) c.subjectCode = String(payload.subjectCode).trim();
+      if (payload.semester != null) c.semester = String(payload.semester).trim();
+      if (payload.programType != null) c.programType = payload.programType;
+      if (payload.level != null) c.level = String(payload.level).trim();
+      if (payload.note != null) c.note = String(payload.note).trim();
+      if (payload.gvName != null) c.gvName = String(payload.gvName).trim();
+      if (payload.tgName != null) c.tgName = String(payload.tgName).trim();
+      if (payload.cvhtId !== undefined) c.cvhtId = payload.cvhtId || null;
+      if (payload.ltId !== undefined) c.ltId = payload.ltId || null;
+      if (payload.btId !== undefined) {
+        c.btId = c.programType === 'NGOAI_NGU' ? null : (payload.btId || null);
+      }
+      if (c.programType === 'NGOAI_NGU') c.btId = null;
+      this.recountClassStudents(d, classId);
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'CLASS_UPDATE',
+        entity: 'Class',
+        entityId: classId,
+        beforeJson: JSON.stringify(before),
+        afterJson: JSON.stringify({
+          code: c.code, majorId: c.majorId, campusId: c.campusId, subject: c.subject,
+          subjectCode: c.subjectCode, semester: c.semester, programType: c.programType,
+          level: c.level, note: c.note, gvName: c.gvName, tgName: c.tgName,
+          cvhtId: c.cvhtId, ltId: c.ltId, btId: c.btId, reason: reason || 'Cập nhật lớp',
+        }),
+        at: new Date().toISOString(),
+      });
+      updated = { ...c };
+    });
+    this.queueSheetsPush(['Classes', 'AuditLog']);
+    return updated;
+  },
+
+  createStudent(actor, payload = {}) {
+    const classId = payload.classId;
+    if (!classId) throw new Error('Thiếu lớp');
+    const name = String(payload.name || '').trim();
+    if (!name) throw new Error('Nhập họ tên sinh viên');
+    const cls = this.get().classes.find((c) => c.id === classId && c.active !== false);
+    if (!cls) throw new Error('Không tìm thấy lớp');
+
+    const id = this.uid('sv');
+    const now = new Date().toISOString();
+    const ns = {
+      id,
+      classId,
+      name,
+      studentCode: String(payload.studentCode || '').trim(),
+      email: String(payload.email || '').trim().toLowerCase(),
+      phone: String(payload.phone || '').trim(),
+      gender: String(payload.gender || '').trim(),
+      enrollStatus: String(payload.enrollStatus || 'Đang theo học').trim(),
+      status: payload.status || 'ACTIVE',
+      statusNote: '',
+      riskReason: '',
+      riskLevel: '',
+      active: true,
+      statusUpdatedAt: now,
+      statusUpdatedBy: actor.id,
+      updatedAt: now,
+    };
+
+    this.update((d) => {
+      d.students.push(ns);
+      this.recountClassStudents(d, classId);
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'STUDENT_CREATE',
+        entity: 'Student',
+        entityId: id,
+        beforeJson: '',
+        afterJson: JSON.stringify({
+          name: ns.name, studentCode: ns.studentCode, classId, email: ns.email, gender: ns.gender,
+        }),
+        at: now,
+      });
+    });
+    this.queueSheetsPush(['Students', 'Classes', 'AuditLog']);
+    return ns;
+  },
+
+  updateStudent(actor, studentId, payload = {}, reason = '') {
+    if (!studentId) throw new Error('Thiếu studentId');
+    let updated = null;
+    this.update((d) => {
+      const s = d.students.find((x) => x.id === studentId);
+      if (!s || s.active === false) throw new Error('Không tìm thấy sinh viên');
+      const before = {
+        name: s.name, studentCode: s.studentCode, email: s.email, phone: s.phone,
+        gender: s.gender, enrollStatus: s.enrollStatus, classId: s.classId, status: s.status,
+      };
+      const prevClass = s.classId;
+      if (payload.name != null) s.name = String(payload.name).trim();
+      if (payload.studentCode != null) s.studentCode = String(payload.studentCode).trim();
+      if (payload.email != null) s.email = String(payload.email).trim().toLowerCase();
+      if (payload.phone != null) s.phone = String(payload.phone).trim();
+      if (payload.gender != null) s.gender = String(payload.gender).trim();
+      if (payload.enrollStatus != null) s.enrollStatus = String(payload.enrollStatus).trim();
+      if (payload.classId != null && payload.classId !== s.classId) {
+        const target = d.classes.find((c) => c.id === payload.classId && c.active !== false);
+        if (!target) throw new Error('Lớp đích không hợp lệ');
+        s.classId = payload.classId;
+      }
+      if (payload.status != null) s.status = payload.status;
+      s.updatedAt = new Date().toISOString();
+      this.recountClassStudents(d, prevClass);
+      if (s.classId !== prevClass) this.recountClassStudents(d, s.classId);
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'STUDENT_UPDATE',
+        entity: 'Student',
+        entityId: studentId,
+        beforeJson: JSON.stringify(before),
+        afterJson: JSON.stringify({
+          name: s.name, studentCode: s.studentCode, email: s.email, phone: s.phone,
+          gender: s.gender, enrollStatus: s.enrollStatus, classId: s.classId, status: s.status,
+          reason: reason || 'Cập nhật SV',
+        }),
+        at: new Date().toISOString(),
+      });
+      updated = { ...s };
+    });
+    this.queueSheetsPush(['Students', 'Classes', 'AuditLog']);
+    return updated;
+  },
+
+  deleteStudent(actor, studentId, reason = '') {
+    if (!studentId) throw new Error('Thiếu studentId');
+    this.update((d) => {
+      const s = d.students.find((x) => x.id === studentId);
+      if (!s) throw new Error('Không tìm thấy sinh viên');
+      const before = { name: s.name, classId: s.classId, active: s.active !== false };
+      s.active = false;
+      this.recountClassStudents(d, s.classId);
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'STUDENT_DELETE',
+        entity: 'Student',
+        entityId: studentId,
+        beforeJson: JSON.stringify(before),
+        afterJson: JSON.stringify({ active: false, reason: reason || 'Xóa sinh viên' }),
+        at: new Date().toISOString(),
+      });
+    });
+    this.queueSheetsPush(['Students', 'Classes', 'AuditLog']);
   },
 
   uid(prefix = 'id') {
