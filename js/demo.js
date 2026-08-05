@@ -139,7 +139,7 @@ const DemoKit = {
           1: { point: 2, note: '@all Thông báo lịch học bù thứ Bảy từ GV trên Lark Group.', max: 2 },
           2: { point: 2, note: 'Động viên nhóm thuyết trình; nhắc SV thụ động tham gia thảo luận.', max: 2 },
           3: { point: 1, note: 'Trần Quốc Bảo nghỉ 2 buổi, chưa nộp 3 BTVN — đã báo GV/TG.', max: 2 },
-          4: { point: 2, note: 'BC tuần trên Lark Base: 23/25 chuyên cần; 1 SV nguy cơ.', max: 2 },
+          4: { point: 2, note: 'BC tuần: 23/25 chuyên cần; 1 SV nguy cơ.', max: 2 },
           5: { point: 2, note: 'Triển khai yêu cầu bổ sung BTVN trước 17:00, cập nhật GV.', max: 2 },
         },
         totalScore: 9, isLate: false,

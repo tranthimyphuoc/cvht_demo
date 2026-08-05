@@ -848,8 +848,16 @@
     </button>`;
   }
 
+  function hasNnClassAssigned() {
+    return classesForUser().some((c) => c.programType === 'NGOAI_NGU');
+  }
+
   function renderShell() {
-    const items = ROLE_MENUS[role()] || [];
+    let items = [...(ROLE_MENUS[role()] || [])];
+    /* CVHT chỉ thấy R-Point khi được gán ít nhất 1 lớp Ngoại ngữ */
+    if (role() === 'CVHT' && !hasNnClassAssigned()) {
+      items = items.filter((i) => i.id !== 'rpoint');
+    }
     const pending = pendingForRole().length;
     const hasGroups = items.some((i) => i.group);
 
@@ -1926,10 +1934,6 @@
                 <strong>${point}</strong><span>/${c.max}</span>
               </div>
             </header>
-            <details class="nn-criterion-example">
-              <summary>Xem ví dụ minh họa</summary>
-              <p>${esc(c.example)}</p>
-            </details>
             <div class="nn-criterion-inputs">
               <div class="nn-score-field">
                 <span class="nn-score-label">Điểm tự đánh giá</span>
@@ -3139,6 +3143,9 @@
   function pageRPoint() {
     if (!['CVHT', 'QLDT'].includes(role())) return denyAccess();
     const nnClasses = classesForUser().filter((c) => c.programType === 'NGOAI_NGU');
+    if (role() === 'CVHT' && !nnClasses.length) {
+      return denyAccess('Bạn chưa được gán lớp Ngoại ngữ — không dùng R-Point');
+    }
     const allEvals = (db().rpointEvals || []).filter((e) => isAdmin() || nnClasses.some((c) => c.id === e.classId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const t = getTrace('rpoint');
