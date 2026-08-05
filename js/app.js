@@ -1898,49 +1898,65 @@
             </div>
           </div>
         </div></div>
-        <div class="cta-hero" style="padding:18px 24px">
+        <div class="cta-hero nn-report-hero" style="padding:18px 24px">
           <div>
             <h2>${esc(cls.code)} · ${esc(subjectOf(cls))}</h2>
-            <p>${Scoring.fmtDate(range.start)} – ${Scoring.fmtDate(range.end)} · Hạn T6 23:00 · ${cd.text} · <strong>5 tiêu chí × 2 điểm = /10</strong></p>
+            <p>${Scoring.fmtDate(range.start)} – ${Scoring.fmtDate(range.end)} · Hạn T6 23:00 · ${cd.text}</p>
+            <p class="nn-report-hero-meta">5 tiêu chí × 2 điểm = tối đa <strong>10</strong></p>
           </div>
-          <div class="total-score" id="nnTotalScore" style="font-size:1.4rem">0 <small>/ 10</small></div>
+          <div class="nn-total-badge">
+            <span class="nn-total-label">Tổng điểm</span>
+            <strong id="nnTotalScore">0<span>/10</span></strong>
+          </div>
         </div>
+        <div class="nn-criteria-list">
         ${criteria.map((c, i) => {
           const fd = f[c.id] || {};
-          const point = fd.point != null ? fd.point : 2;
-          return `<div class="criterion" style="animation-delay:${i * 0.04}s">
-            <div class="criterion-head">
-              <div>
-                <h3>${c.id}. ${esc(c.title)}</h3>
-                <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5">${esc(c.desc)}</div>
-                <div style="font-size:12px;margin-top:8px;padding:8px 10px;background:var(--surface);border-radius:8px;color:var(--muted);line-height:1.45">
-                  <strong style="color:var(--ink)">Ví dụ:</strong> ${esc(c.example)}
+          const point = fd.point != null ? Number(fd.point) : 2;
+          return `<article class="nn-criterion" style="animation-delay:${i * 0.04}s" data-nn-card="${c.id}">
+            <header class="nn-criterion-head">
+              <div class="nn-criterion-title">
+                <span class="nn-criterion-num">${c.id}</span>
+                <div>
+                  <h3>${esc(c.title)}</h3>
+                  <p class="nn-criterion-desc">${esc(c.desc)}</p>
                 </div>
               </div>
-              <div class="max">Max ${c.max}</div>
-            </div>
-            <div class="criterion-grid" style="grid-template-columns:120px 1fr auto">
-              <div class="field" style="margin:0">
-                <label>Điểm tự đánh giá</label>
-                <select data-nn-point="${c.id}">${scoreOpts(point)}</select>
+              <div class="nn-criterion-score" data-nn-preview="${c.id}">
+                <strong>${point}</strong><span>/${c.max}</span>
               </div>
-              <div class="field" style="margin:0">
-                <label>Mô tả thực hiện tuần này</label>
-                <textarea data-nn-note="${c.id}" rows="2" placeholder="Mô tả việc đã làm…">${esc(fd.note || '')}</textarea>
+            </header>
+            <details class="nn-criterion-example">
+              <summary>Xem ví dụ minh họa</summary>
+              <p>${esc(c.example)}</p>
+            </details>
+            <div class="nn-criterion-inputs">
+              <div class="nn-score-field">
+                <span class="nn-score-label">Điểm tự đánh giá</span>
+                <div class="nn-score-opts" role="group" aria-label="Điểm tiêu chí ${c.id}">
+                  ${[0, 1, 2].map((v) =>
+                    `<button type="button" class="nn-score-btn${point === v ? ' active' : ''}" data-nn-score="${c.id}" data-value="${v}">${v}</button>`
+                  ).join('')}
+                </div>
+                <input type="hidden" data-nn-point="${c.id}" value="${point}" />
               </div>
-              <div class="score-preview" data-nn-preview="${c.id}">${point}/${c.max}</div>
+              <div class="nn-note-field">
+                <label for="nnNote${c.id}">Mô tả thực hiện tuần này</label>
+                <textarea id="nnNote${c.id}" data-nn-note="${c.id}" rows="3" placeholder="Viết ngắn gọn việc đã làm trong tuần…">${esc(fd.note || '')}</textarea>
+              </div>
             </div>
-          </div>`;
+          </article>`;
         }).join('')}
-        <div class="panel"><div class="panel-body">
+        </div>
+        <div class="panel nn-report-footer"><div class="panel-body">
           <div class="field"><label>Ghi chú thêm gửi CVHT (tuỳ chọn)</label>
             <textarea id="nnSummary" rows="2" placeholder="Tóm tắt ngắn / đề xuất hỗ trợ…">${esc(editingNn?.summaryNote || '')}</textarea></div>
           ${attachPanelHtml(state.nnAttachments || [])}
-          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
+          <div class="nn-actions">
             ${editingNn ? '<button type="button" class="btn btn-ghost" id="btnCancelNn">Hủy</button>' : ''}
             <button type="button" class="btn btn-ghost" id="btnDraftNn">Lưu nháp</button>
             <button type="button" class="btn btn-primary" id="btnSubmitNn">${editingNn ? 'Gửi đi' : 'Gửi CVHT'}</button>
-            <span style="font-size:13px;color:var(--muted);margin-left:auto">Tổng: <strong id="nnTotalInline">0</strong>/10</span>
+            <span class="nn-actions-total">Tổng: <strong id="nnTotalInline">0</strong>/10</span>
           </div>
         </div></div>`;
 
@@ -1976,14 +1992,25 @@
         criteria.forEach((c) => {
           const point = Number($(`[data-nn-point="${c.id}"]`)?.value) || 0;
           const prev = $(`[data-nn-preview="${c.id}"]`);
-          if (prev) prev.textContent = `${point}/${c.max}`;
+          if (prev) prev.innerHTML = `<strong>${point}</strong><span>/${c.max}</span>`;
+          $$(`[data-nn-score="${c.id}"]`).forEach((btn) => {
+            btn.classList.toggle('active', Number(btn.dataset.value) === point);
+          });
         });
         const el = $('#nnTotalScore');
-        if (el) el.innerHTML = `${total} <small>/ 10</small>`;
+        if (el) el.innerHTML = `${total}<span>/10</span>`;
         const inline = $('#nnTotalInline');
         if (inline) inline.textContent = total;
       };
-      $$('[data-nn-point]').forEach((el) => el.addEventListener('change', refreshScores));
+
+      $$('[data-nn-score]').forEach((btn) => {
+        btn.onclick = () => {
+          const id = btn.dataset.nnScore;
+          const hidden = $(`[data-nn-point="${id}"]`);
+          if (hidden) hidden.value = btn.dataset.value;
+          refreshScores();
+        };
+      });
       refreshScores();
 
       const save = (status) => {
@@ -2905,15 +2932,21 @@
       const f = r.formData || {};
       const isNew = SEED.criteriaNN.some((c) => f[c.id] && (f[c.id].point != null || f[c.id].note != null));
       if (isNew) {
-        body = SEED.criteriaNN.map((c) => {
+        body = `<div class="nn-criteria-list">${SEED.criteriaNN.map((c) => {
           const fd = f[c.id] || {};
-          return `<div class="criterion"><div class="criterion-head">
-            <div><h3>${c.id}. ${esc(c.title)}</h3>
-              <div style="font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.45">${esc(fd.note || '—')}</div>
-            </div>
-            <div class="score-preview">${fd.point ?? 0}/${c.max}</div>
-          </div></div>`;
-        }).join('');
+          return `<article class="nn-criterion">
+            <header class="nn-criterion-head">
+              <div class="nn-criterion-title">
+                <span class="nn-criterion-num">${c.id}</span>
+                <div>
+                  <h3>${esc(c.title)}</h3>
+                  <p class="nn-criterion-desc">${esc(fd.note || '—')}</p>
+                </div>
+              </div>
+              <div class="nn-criterion-score"><strong>${fd.point ?? 0}</strong><span>/${c.max}</span></div>
+            </header>
+          </article>`;
+        }).join('')}</div>`;
         if (r.summaryNote) {
           body += `<div class="panel"><div class="panel-body"><strong>Ghi chú thêm:</strong>
             <p style="margin-top:6px;color:var(--muted)">${esc(r.summaryNote)}</p></div></div>`;
