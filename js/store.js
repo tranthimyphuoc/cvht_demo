@@ -720,6 +720,134 @@ const Store = {
     this.queueSheetsPush(['Students', 'Classes', 'AuditLog']);
   },
 
+  /**
+   * Import / upsert hàng loạt SV từ Excel/CSV
+   * Khớp trùng: mã SV + lớp, hoặc email + lớp (nếu có email)
+   */
+  importStudentsBulk(actor, payloads = [], opts = {}) {
+    const updateExisting = opts.updateExisting !== false;
+    const defaultClassId = opts.defaultClassId || '';
+    const now = new Date().toISOString();
+    const result = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const touchedClasses = new Set();
+
+    this.update((d) => {
+      const activeClasses = (d.classes || []).filter((c) => c.active !== false);
+      const byCode = Object.fromEntries(activeClasses.map((c) => [String(c.code || '').toUpperCase(), c]));
+      const byId = Object.fromEntries(activeClasses.map((c) => [c.id, c]));
+
+      const resolveClass = (row) => {
+        if (row.classId && byId[row.classId]) return byId[row.classId];
+        if (row.classCode && byCode[String(row.classCode).toUpperCase()]) {
+          return byCode[String(row.classCode).toUpperCase()];
+        }
+        if (defaultClassId && byId[defaultClassId]) return byId[defaultClassId];
+        return null;
+      };
+
+      const findExisting = (classId, row) => {
+        const list = (d.students || []).filter((s) => s.classId === classId && s.active !== false);
+        const code = String(row.studentCode || '').trim().toLowerCase();
+        if (code) {
+          const hit = list.find((s) => String(s.studentCode || '').trim().toLowerCase() === code);
+          if (hit) return hit;
+        }
+        const email = String(row.email || '').trim().toLowerCase();
+        if (email) {
+          const hit = list.find((s) => String(s.email || '').trim().toLowerCase() === email);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      payloads.forEach((row) => {
+        try {
+          const name = String(row.name || '').trim();
+          if (!name) {
+            result.skipped += 1;
+            result.errors.push(`Dòng ${row._line || '?'}: thiếu họ tên`);
+            return;
+          }
+          const cls = resolveClass(row);
+          if (!cls) {
+            result.skipped += 1;
+            result.errors.push(`Dòng ${row._line || '?'}: không tìm thấy lớp${row.classCode ? ` (${row.classCode})` : ''}`);
+            return;
+          }
+          const existing = findExisting(cls.id, row);
+          if (existing) {
+            if (!updateExisting) {
+              result.skipped += 1;
+              return;
+            }
+            existing.name = name;
+            if (row.studentCode != null && String(row.studentCode).trim()) {
+              existing.studentCode = String(row.studentCode).trim();
+            }
+            if (row.email != null) existing.email = String(row.email || '').trim().toLowerCase();
+            if (row.phone != null) existing.phone = String(row.phone || '').trim();
+            if (row.gender != null) existing.gender = String(row.gender || '').trim();
+            if (row.enrollStatus != null && String(row.enrollStatus).trim()) {
+              existing.enrollStatus = String(row.enrollStatus).trim();
+            }
+            if (row.status) existing.status = row.status;
+            existing.active = true;
+            existing.updatedAt = now;
+            result.updated += 1;
+            touchedClasses.add(cls.id);
+            return;
+          }
+
+          const ns = {
+            id: this.uid('sv'),
+            classId: cls.id,
+            name,
+            studentCode: String(row.studentCode || '').trim(),
+            email: String(row.email || '').trim().toLowerCase(),
+            phone: String(row.phone || '').trim(),
+            gender: String(row.gender || '').trim(),
+            enrollStatus: String(row.enrollStatus || 'Đang theo học').trim(),
+            status: row.status || 'ACTIVE',
+            statusNote: '',
+            riskReason: '',
+            riskLevel: '',
+            active: true,
+            statusUpdatedAt: now,
+            statusUpdatedBy: actor.id,
+            updatedAt: now,
+          };
+          d.students.push(ns);
+          result.created += 1;
+          touchedClasses.add(cls.id);
+        } catch (err) {
+          result.skipped += 1;
+          result.errors.push(`Dòng ${row._line || '?'}: ${err.message || err}`);
+        }
+      });
+
+      touchedClasses.forEach((cid) => this.recountClassStudents(d, cid));
+      d.auditLog.unshift({
+        id: this.uid('al'),
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'STUDENT_IMPORT',
+        entity: 'Student',
+        entityId: defaultClassId || 'bulk',
+        beforeJson: '',
+        afterJson: JSON.stringify({
+          created: result.created,
+          updated: result.updated,
+          skipped: result.skipped,
+          total: payloads.length,
+        }),
+        at: now,
+      });
+    });
+
+    this.queueSheetsPush(['Students', 'Classes', 'AuditLog']);
+    return result;
+  },
+
   uid(prefix = 'id') {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   },

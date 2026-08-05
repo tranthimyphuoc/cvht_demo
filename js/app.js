@@ -1460,6 +1460,153 @@
     }
   }
 
+  function openImportStudentsModal(classId) {
+    if (classId && !canManageRoster(classId)) return denyAccess();
+    if (!classId && !isAdmin()) return denyAccess();
+    const cls = classId ? classById(classId) : null;
+    let pendingRows = [];
+    let parseErrors = [];
+
+    $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal" style="max-width:640px">
+      <div class="modal-head"><h3>Import sinh viên${cls ? ` · ${esc(cls.code)}` : ''}</h3>
+        <button class="btn btn-ghost btn-sm" id="mClose">✕</button></div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.45">
+          Lấy danh sách từ Excel nhanh nhất:
+          <strong style="color:var(--ink)">File .xlsx / .csv</strong>,
+          hoặc <strong style="color:var(--ink)">copy vùng Excel → dán</strong> vào ô bên dưới.
+          Trùng <em>mã SV</em> hoặc <em>email</em> trong cùng lớp sẽ được cập nhật.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnTpl">↓ Tải file mẫu CSV</button>
+          <label class="btn btn-primary btn-sm" style="cursor:pointer;margin:0">
+            Chọn file Excel / CSV
+            <input type="file" id="impFile" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden />
+          </label>
+        </div>
+        <div class="field"><label>Hoặc dán từ Excel (Ctrl+V)</label>
+          <textarea id="impPaste" rows="5" placeholder="Họ tên&#9;Mã SV&#9;Email&#9;SĐT&#9;Giới tính&#10;Nguyễn Văn An&#9;SV25001&#9;an@mail.com&#9;0901…&#9;Nam"></textarea>
+        </div>
+        ${!cls ? `<div class="field"><label>Cột mã lớp</label>
+          <div style="font-size:12.5px;color:var(--muted)">File nhiều lớp cần cột <code>ma_lop</code> (vd: HN-K25-QTKD1). Import trong 1 lớp thì không cần.</div>
+        </div>` : ''}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 12px">
+          <input type="checkbox" id="impUpdate" checked /> Cập nhật SV đã có (trùng mã / email)
+        </label>
+        <div id="impPreview" style="font-size:12.5px;color:var(--muted)">Chưa có dữ liệu — chọn file hoặc dán.</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="mCancel">Hủy</button>
+        <button class="btn btn-primary" id="mImport" disabled>Import</button>
+      </div>
+    </div></div>`;
+
+    const close = () => { $('#modalRoot').innerHTML = ''; };
+    $('#mClose').onclick = $('#mCancel').onclick = close;
+    $('#modalOv').onclick = (e) => { if (e.target.id === 'modalOv') close(); };
+
+    const paintPreview = () => {
+      const box = $('#impPreview');
+      const btn = $('#mImport');
+      if (!pendingRows.length) {
+        box.innerHTML = parseErrors.length
+          ? `<span style="color:var(--danger)">${parseErrors.slice(0, 5).map(esc).join('<br>')}</span>`
+          : 'Chưa có dữ liệu — chọn file hoặc dán.';
+        btn.disabled = true;
+        return;
+      }
+      const head = pendingRows.slice(0, 8).map((r) =>
+        `<tr><td>${esc(r.name)}</td><td>${esc(r.studentCode || '—')}</td><td>${esc(r.email || '—')}</td><td>${esc(r.classCode || cls?.code || '—')}</td></tr>`).join('');
+      box.innerHTML = `
+        <div style="margin-bottom:6px"><strong style="color:var(--ink)">${pendingRows.length}</strong> dòng sẵn sàng
+          ${parseErrors.length ? ` · <span style="color:var(--danger)">${parseErrors.length} cảnh báo</span>` : ''}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Họ tên</th><th>Mã SV</th><th>Email</th><th>Lớp</th></tr></thead>
+          <tbody>${head}</tbody>
+        </table></div>
+        ${pendingRows.length > 8 ? `<div style="margin-top:4px;color:var(--muted)">… và ${pendingRows.length - 8} dòng khác</div>` : ''}
+        ${parseErrors.length ? `<div style="margin-top:8px;color:var(--danger)">${parseErrors.slice(0, 4).map(esc).join('<br>')}</div>` : ''}`;
+      btn.disabled = false;
+    };
+
+    const applyRaw = (rawRows) => {
+      const { rows, errors } = CsvImport.normalizeStudentRows(rawRows, {
+        defaultClassId: cls?.id || '',
+        defaultClassCode: cls?.code || '',
+      });
+      pendingRows = rows;
+      parseErrors = errors;
+      paintPreview();
+    };
+
+    $('#btnTpl').onclick = () => {
+      CsvImport.downloadStudentTemplate(cls?.code || '');
+      toast('Đã tải file mẫu — mở bằng Excel, điền rồi lưu CSV hoặc xlsx');
+    };
+
+    $('#impFile').onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        toast('Đang đọc file…');
+        const parsed = await CsvImport.parseFile(file);
+        if (!parsed.rows?.length) throw new Error('File trống hoặc không đọc được');
+        applyRaw(parsed.rows);
+        toast(`Đã đọc ${parsed.rows.length} dòng từ ${file.name}`);
+      } catch (err) {
+        toast(err.message || 'Không đọc được file', 'err');
+      }
+      e.target.value = '';
+    };
+
+    let pasteTimer = null;
+    $('#impPaste').addEventListener('input', () => {
+      clearTimeout(pasteTimer);
+      pasteTimer = setTimeout(() => {
+        const text = $('#impPaste').value;
+        if (!text.trim()) { pendingRows = []; parseErrors = []; paintPreview(); return; }
+        const parsed = CsvImport.parseDelimited(text);
+        const mappedKeys = (parsed.headers || []).map((h) => CsvImport.mapHeader(h)).filter(Boolean);
+        if (mappedKeys.includes('name') || mappedKeys.includes('studentCode')) {
+          applyRaw(parsed.rows);
+          return;
+        }
+        // Dán không có header: coi mỗi dòng = Họ tên | Mã SV | Email | SĐT | Giới tính | Mã lớp
+        const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
+        const delim = CsvImport.detectDelim(lines[0] || '');
+        const dataRows = lines.map((line) => {
+          const c = CsvImport.splitCsvLine(line, delim);
+          return {
+            'Họ tên': c[0], 'Mã SV': c[1], Email: c[2], SĐT: c[3],
+            'Giới tính': c[4], 'Mã lớp': c[5] || cls?.code || '',
+          };
+        });
+        applyRaw(dataRows);
+      }, 200);
+    });
+
+    $('#mImport').onclick = () => {
+      if (!pendingRows.length) return;
+      try {
+        const result = Store.importStudentsBulk(user, pendingRows, {
+          defaultClassId: cls?.id || '',
+          updateExisting: $('#impUpdate').checked,
+        });
+        const msg = `Import xong: +${result.created} mới, ${result.updated} cập nhật`
+          + (result.skipped ? `, ${result.skipped} bỏ qua` : '');
+        toast(msg);
+        if (result.errors?.length) {
+          console.warn('Import warnings', result.errors);
+        }
+        close();
+        if (cls) pageClassDetail(cls.id);
+        else pageClasses();
+      } catch (err) {
+        toast(err.message || 'Import thất bại', 'err');
+      }
+    };
+  }
+
   function pageClasses() {
     if (routeParams.id) return pageClassDetail(routeParams.id);
     let classes = classesForUser();
@@ -1536,12 +1683,17 @@
       ${flowBanner()}
       ${isAdmin() ? `<div class="admin-toolbar">
         <span style="font-size:13px;color:var(--muted)">Quản lý lớp · sĩ số · phân công</span>
-        <button type="button" class="btn btn-primary btn-sm" id="btnAddClass">+ Thêm lớp</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnImportSvAll">Import SV (Excel)</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnAddClass">+ Thêm lớp</button>
+        </div>
       </div>` : ''}
       ${bodyHtml}`;
 
     const addBtn = $('#btnAddClass');
     if (addBtn) addBtn.onclick = () => openClassFormModal(null);
+    const impAll = $('#btnImportSvAll');
+    if (impAll) impAll.onclick = () => openImportStudentsModal(null);
     $$('[data-edit-class]').forEach((b) => {
       b.onclick = (e) => { e.stopPropagation(); openClassFormModal(b.dataset.editClass); };
     });
@@ -1599,6 +1751,7 @@
           <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <h2 style="margin:0;font-size:.95rem">Danh sách sinh viên</h2>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${canRoster ? `<button type="button" class="btn btn-ghost btn-sm" id="btnImportSv">Import Excel</button>` : ''}
               ${canRoster ? `<button type="button" class="btn btn-primary btn-sm" id="btnAddSv">+ Thêm SV</button>` : ''}
               ${canStatus ? `<button type="button" class="btn btn-ghost btn-sm" id="btnMarkRisk">Ghi nhận trạng thái</button>` : ''}
             </div>
@@ -1643,6 +1796,8 @@
         });
         const addSv = $('#btnAddSv');
         if (addSv) addSv.onclick = () => openStudentFormModal(id, null);
+        const impSv = $('#btnImportSv');
+        if (impSv) impSv.onclick = () => openImportStudentsModal(id);
         const markBtn = $('#btnMarkRisk');
         if (markBtn) markBtn.onclick = () => openPickStudentStatusModal(id);
       } else {
@@ -4252,6 +4407,7 @@
       STUDENT_CREATE: 'Thêm sinh viên',
       STUDENT_UPDATE: 'Cập nhật sinh viên',
       STUDENT_DELETE: 'Xóa sinh viên',
+      STUDENT_IMPORT: 'Import sinh viên',
       COUNSEL_NOTE: 'Biên bản tư vấn',
       ESCALATE: 'Chuyển QLĐT',
       ESCALATE_NOTE: 'Ghi chú case QLĐT',
