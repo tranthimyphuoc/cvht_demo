@@ -68,10 +68,33 @@
 
   <script src="js/config.js"></script>
   <script src="js/data.js"></script>
+  <script src="js/sheets.js"></script>
   <script src="js/store.js"></script>
   <script>
     ['cvht_hub_v1', 'cvht_hub_v2', 'cvht_hub_v3', 'cvht_hub_v4', 'cvht_hub_v5', 'cvht_hub_v6', 'cvht_hub_v7', 'cvht_hub_v8', 'cvht_hub_v9', 'cvht_hub_v10', 'cvht_hub_v11', 'cvht_hub_v12', 'cvht_hub_v13', 'cvht_hub_v14', 'cvht_hub_v15', 'cvht_hub_v16'].forEach((k) => localStorage.removeItem(k));
-    if (Store.getSession()) location.href = 'app.html';
+
+    const loginError = document.getElementById('loginError');
+    const loginForm = document.getElementById('loginForm');
+    const submitBtn = loginForm.querySelector('button[type="submit"]');
+
+    async function ensureSheetsUsers() {
+      if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Đang đồng bộ…';
+        await Store.pullFromSheets();
+      } catch (err) {
+        console.warn('Login sheets pull failed', err);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Vào hệ thống';
+      }
+    }
+
+    (async () => {
+      await ensureSheetsUsers();
+      if (Store.getSession()) location.href = 'app.html';
+    })();
 
     const demos = [
       { email: 'bt@rikkei.edu', label: 'Bí thư', hint: 'HCM-KS24-CNTT1 · BC → CVHT' },
@@ -93,16 +116,19 @@
       if (!chip) return;
       document.getElementById('email').value = chip.dataset.email;
       document.getElementById('password').value = '123456';
-      document.getElementById('loginError').classList.remove('show');
+      loginError.classList.remove('show');
     });
 
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      loginError.classList.remove('show');
+      await ensureSheetsUsers();
       const email = document.getElementById('email').value.trim().toLowerCase();
       const password = document.getElementById('password').value;
-      const user = Store.get().users.find((u) => u.email === email && u.password === password);
+      const user = Store.findByLogin(email, password);
       if (!user) {
-        document.getElementById('loginError').classList.add('show');
+        loginError.textContent = 'Email hoặc mật khẩu không đúng.';
+        loginError.classList.add('show');
         return;
       }
       Store.setSession(user);

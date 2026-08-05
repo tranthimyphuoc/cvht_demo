@@ -131,6 +131,10 @@ const SheetsAPI = {
     if (sheet === 'Users') {
       o.active = this.bool(o.active, true);
       o.primaryRole = o.primaryRole || o.role || 'CVHT';
+      o.email = String(o.email || '').trim().toLowerCase();
+      o.password = o.password == null || o.password === '' ? '123456' : String(o.password).trim();
+      o.name = String(o.name || '').trim();
+      o.id = String(o.id || '').trim();
     }
     if (sheet === 'Classes') {
       o.active = this.bool(o.active, true);

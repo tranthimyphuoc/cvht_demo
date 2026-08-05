@@ -225,20 +225,26 @@ const Store = {
       return {
         ...u,
         name: o.name ?? u.name,
-        email: o.email ?? u.email,
+        email: String(o.email ?? u.email ?? '').trim().toLowerCase(),
         phone: o.phone ?? u.phone,
         campus: o.campus ?? u.campus,
         primaryRole: o.primaryRole ?? o.role ?? u.primaryRole,
         role: o.role ?? o.primaryRole ?? u.role,
         initials: o.initials ?? u.initials,
         active: o.active !== undefined ? o.active : u.active,
-        password: o.password ?? u.password,
+        password: o.password == null || o.password === '' ? String(u.password || '123456') : String(o.password).trim(),
         aliasOf: o.aliasOf ?? u.aliasOf,
         classId: o.classId ?? u.classId,
       };
     });
     savedUsers.forEach((u) => {
-      if (!catalogIds.has(u.id)) merged.push({ ...u });
+      if (!catalogIds.has(u.id)) {
+        merged.push({
+          ...u,
+          email: String(u.email || '').trim().toLowerCase(),
+          password: u.password == null || u.password === '' ? '123456' : String(u.password).trim(),
+        });
+      }
     });
     return merged;
   },
@@ -349,7 +355,19 @@ const Store = {
     const data = this.load();
     fn(data);
     this.save(data);
+    this.scheduleSheetsSync();
     return this.applyCurriculum(data);
+  },
+
+  /** Debounce đẩy toàn bộ lên Sheets sau mỗi lần ghi (tránh spam API) */
+  _sheetsSyncTimer: null,
+  scheduleSheetsSync() {
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+    if (this._sheetsSyncTimer) clearTimeout(this._sheetsSyncTimer);
+    this._sheetsSyncTimer = setTimeout(() => {
+      this._sheetsSyncTimer = null;
+      this.pushAllToSheets().catch((err) => console.warn('Sheets auto-sync', err));
+    }, 1200);
   },
 
   reset() {
@@ -387,6 +405,18 @@ const Store = {
     if (!id) return null;
     const data = this.get();
     return data.users.find((u) => u.id === id) || SEED.users.find((u) => u.id === id) || null;
+  },
+
+  /** Đăng nhập — chuẩn hóa email/password (Sheets hay trả password dạng số) */
+  findByLogin(email, password) {
+    const em = String(email || '').trim().toLowerCase();
+    const pw = String(password ?? '').trim();
+    const users = this.get().users || [];
+    return users.find((u) => {
+      const uEmail = String(u.email || '').trim().toLowerCase();
+      const uPass = String(u.password ?? '').trim();
+      return uEmail === em && uPass === pw && u.active !== false;
+    }) || null;
   },
 
   uid(prefix = 'id') {

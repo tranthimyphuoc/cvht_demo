@@ -3917,6 +3917,8 @@
             <li>Sửa <code>js/config.js</code>: <code>mode: 'sheets'</code>, <code>sheetsWebAppUrl: 'URL…'</code> → commit &amp; push GitHub.</li>
             <li>Đăng nhập QLĐT → trang này → <strong>Đẩy lên Sheets</strong> (seed lần đầu) · sau đó mọi máy <strong>Kéo từ Sheets</strong> / app tự kéo khi mở.</li>
           </ol>
+          <p style="margin-top:12px"><strong style="color:var(--ink)">Máy khác:</strong> không cần bấm Kéo — app <em>tự kéo khi mở</em> (nút Kéo dùng khi muốn làm mới ngay).</p>
+          <p style="margin-top:6px"><strong style="color:var(--ink)">Thêm người / gửi BC / …:</strong> <em>tự đẩy lên Sheets</em> sau ~1–2 giây (không cần bấm Đẩy, trừ khi muốn đẩy ngay toàn bộ).</p>
           <p style="margin-top:12px">Tabs: <code style="font-size:11.5px">${esc(tabs)}</code></p>
           <p style="margin-top:8px">Trạng thái: <span class="badge ${on ? 'badge-ok' : 'badge-warn'}">${on ? 'sheets' : 'local'}</span>
             ${on ? '' : ' — sửa config.js rồi reload để bật đồng bộ.'}</p>
