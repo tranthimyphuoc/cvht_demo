@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CVHT Hub — Đăng nhập</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23C8102E' width='100' height='100' rx='20'/><text x='50' y='64' text-anchor='middle' fill='white' font-size='42' font-family='sans-serif' font-weight='700'>RE</text></svg>" />
+</head>
+<body>
+  <div class="login-page">
+    <section class="login-visual">
+      <div class="login-visual-inner">
+        <div class="login-brand">
+          <div class="brand-mark">RE</div>
+          <div class="brand-text">
+            <strong>CVHT Hub</strong>
+            <span>Rikkei Education × PTIT</span>
+          </div>
+        </div>
+
+        <div class="login-hero">
+          <p class="login-lead">Nền tảng quản lý Ban cán sự — theo dõi lớp, báo cáo tuần và phối hợp CVHT / QLĐT.</p>
+          <div class="login-flows">
+            <div class="login-flow">
+              <span class="login-flow-tag">CN</span>
+              <span>Bí thư &amp; Lớp trưởng → CVHT → QLĐT</span>
+            </div>
+            <div class="login-flow">
+              <span class="login-flow-tag">NN</span>
+              <span>Lớp trưởng NN → CVHT · R-Point</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="login-panel">
+      <div class="login-box">
+        <div class="login-panel-brand">
+          <div class="brand-mark">RE</div>
+          <strong>CVHT Hub</strong>
+        </div>
+        <h2>Đăng nhập</h2>
+        <p class="sub">Chọn tài khoản demo · mật khẩu <code>123456</code></p>
+        <div class="login-error" id="loginError">Email hoặc mật khẩu không đúng.</div>
+        <form id="loginForm">
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="vd: lt@rikkei.edu" required autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="password">Mật khẩu</label>
+            <input id="password" type="password" value="123456" required autocomplete="current-password" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Vào hệ thống</button>
+        </form>
+
+        <div class="demo-accounts">
+          <h3>Tài khoản demo</h3>
+          <div class="demo-grid" id="demoGrid"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/store.js"></script>
+  <script>
+    ['cvht_hub_v1', 'cvht_hub_v2', 'cvht_hub_v3', 'cvht_hub_v4', 'cvht_hub_v5', 'cvht_hub_v6', 'cvht_hub_v7', 'cvht_hub_v8'].forEach((k) => localStorage.removeItem(k));
+    if (Store.getSession()) location.href = 'app.html';
+
+    const demos = [
+      { email: 'bt@rikkei.edu', label: 'Bí thư', hint: 'CN · BC → CVHT' },
+      { email: 'lt@rikkei.edu', label: 'LT (CN)', hint: 'BC → CVHT' },
+      { email: 'lt.nn@rikkei.edu', label: 'LT (NN)', hint: 'Chuyên cần → CVHT' },
+      { email: 'cvht@rikkei.edu', label: 'CVHT', hint: 'Nhận BT/LT → QLĐT' },
+      { email: 'admin@rikkei.edu', label: 'QLĐT', hint: 'Xem full' },
+    ];
+
+    document.getElementById('demoGrid').innerHTML = demos.map((d) => `
+      <button type="button" class="demo-chip" data-email="${d.email}">
+        <strong>${d.label}</strong>
+        <span>${d.hint}</span>
+      </button>
+    `).join('');
+
+    document.getElementById('demoGrid').addEventListener('click', (e) => {
+      const chip = e.target.closest('.demo-chip');
+      if (!chip) return;
+      document.getElementById('email').value = chip.dataset.email;
+      document.getElementById('password').value = '123456';
+      document.getElementById('loginError').classList.remove('show');
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const password = document.getElementById('password').value;
+      const user = Store.get().users.find((u) => u.email === email && u.password === password);
+      if (!user) {
+        document.getElementById('loginError').classList.add('show');
+        return;
+      }
+      Store.setSession(user);
+      location.href = 'app.html';
+    });
+  </script>
+</body>
+</html>

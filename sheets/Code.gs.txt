@@ -1,0 +1,83 @@
+/**
+ * Google Apps Script — dán vào Extensions → Apps Script của Spreadsheet
+ * Deploy: Deploy → New deployment → Web app
+ *   Execute as: Me
+ *   Who has access: Anyone
+ * Copy URL Web App → dán vào js/config.js → sheetsWebAppUrl, mode: 'sheets'
+ *
+ * Tạo sẵn các sheet: Users, Classes, Assignments, AssignmentHistory,
+ * RoleHistory, AuditLog, Students, Reports, Notifications
+ */
+
+/*
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const action = body.action;
+
+    // Optional: if (body.apiKey !== 'YOUR_KEY') return json_({ error: 'Unauthorized' });
+
+    if (action === 'pullAll') {
+      const out = {};
+      ['Users','Classes','Assignments','AssignmentHistory','RoleHistory','AuditLog','Students','Reports','Notifications']
+        .forEach(name => { out[name] = sheetToObjects_(ss.getSheetByName(name)); });
+      return json_(out);
+    }
+
+    if (action === 'push') {
+      const sh = ss.getSheetByName(body.sheet);
+      if (!sh) return json_({ error: 'Sheet not found: ' + body.sheet });
+      writeObjects_(sh, body.rows || []);
+      return json_({ ok: true, count: (body.rows || []).length });
+    }
+
+    if (action === 'append') {
+      const sh = ss.getSheetByName(body.sheet);
+      if (!sh) return json_({ error: 'Sheet not found' });
+      appendObject_(sh, body.row);
+      return json_({ ok: true });
+    }
+
+    return json_({ error: 'Unknown action' });
+  } catch (err) {
+    return json_({ error: String(err) });
+  }
+}
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function sheetToObjects_(sh) {
+  if (!sh) return [];
+  const values = sh.getDataRange().getValues();
+  if (values.length < 2) return [];
+  const headers = values[0].map(String);
+  return values.slice(1).filter(r => r.some(c => c !== '')).map(row => {
+    const o = {};
+    headers.forEach((h, i) => { o[h] = row[i]; });
+    return o;
+  });
+}
+
+function writeObjects_(sh, rows) {
+  sh.clearContents();
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const data = [headers].concat(rows.map(r => headers.map(h => r[h] == null ? '' : r[h])));
+  sh.getRange(1, 1, data.length, headers.length).setValues(data);
+}
+
+function appendObject_(sh, row) {
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  if (!headers.length || !headers[0]) {
+    const keys = Object.keys(row);
+    sh.getRange(1, 1, 1, keys.length).setValues([keys]);
+    sh.appendRow(keys.map(k => row[k] == null ? '' : row[k]));
+    return;
+  }
+  sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+}
+*/
