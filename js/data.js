@@ -141,23 +141,48 @@ const SEED = {
       beforeJson: '', afterJson: 'Khởi tạo: BT→CVHT · LT→CVHT · LT NN→CVHT · CVHT→QLĐT',
       at: '2026-01-10T08:00:00+07:00',
     },
+    {
+      id: 'al_st1', actorId: 'u_lt', actorName: 'Lu Nhựt Đình',
+      action: 'STUDENT_STATUS', entity: 'Student', entityId: 'simp_246',
+      beforeJson: 'ACTIVE: ',
+      afterJson: 'WATCH: Nghỉ 1 buổi, chưa nộp BTVN',
+      at: '2026-03-27T09:15:00+07:00',
+    },
+    {
+      id: 'al_st2', actorId: 'u_pvh', actorName: 'Phạm Viết Hùng',
+      action: 'STUDENT_STATUS', entity: 'Student', entityId: 'simp_246',
+      beforeJson: 'WATCH: Nghỉ 1 buổi, chưa nộp BTVN',
+      afterJson: 'AT_RISK: Mất liên lạc 48h — nâng mức nguy cơ',
+      at: '2026-03-28T08:40:00+07:00',
+    },
   ],
 
   notifications: [
     { id: 'n1', userId: 'u_bt', title: 'Nhắc báo cáo hoạt động tuần', body: 'Gửi báo cáo phong trào / truyền thông cho CVHT trước 23:00 Thứ 6.', read: false, createdAt: new Date().toISOString() },
     { id: 'n2', userId: 'u_lt', title: 'Nhắc báo cáo tuần', body: 'Gửi báo cáo tình hình lớp cho CVHT trước 23:00 Thứ 6.', read: false, createdAt: new Date().toISOString() },
     { id: 'n3', userId: 'u_ltnn', title: 'Báo cáo tuần Ngoại ngữ', body: 'Gửi báo cáo chuyên cần / tình hình lớp cho CVHT trước 23:00 Thứ 6.', read: false, createdAt: new Date().toISOString() },
-    { id: 'n4', userId: 'u_nq', title: 'Inbox CVHT', body: 'Nhận BC từ Bí thư, Lớp trưởng (CN) và Lớp trưởng NN.', read: false, createdAt: new Date().toISOString() },
-    { id: 'n5', userId: 'u_cvht_demo', title: 'Inbox CVHT', body: 'Nhận BC từ Bí thư, Lớp trưởng (CN) và Lớp trưởng NN.', read: false, createdAt: new Date().toISOString() },
+    { id: 'n4', userId: 'u_nq', title: 'Nhận báo cáo', body: 'Nhận BC từ Bí thư, Lớp trưởng (CN) và Lớp trưởng NN.', read: false, createdAt: new Date().toISOString() },
+    { id: 'n5', userId: 'u_cvht_demo', title: 'Nhận báo cáo', body: 'Nhận BC từ Bí thư, Lớp trưởng (CN) và Lớp trưởng NN.', read: false, createdAt: new Date().toISOString() },
     { id: 'n6', userId: 'u_admin', title: 'Báo cáo CVHT', body: 'Theo dõi báo cáo tổng hợp từ CVHT.', read: false, createdAt: new Date().toISOString() },
   ],
 
   counseling: [
-    { id: 'cn1', studentId: 'simp_246', cvhtId: 'u_pvh', note: 'Đã gọi điện, SV báo lý do gia đình. Kế hoạch học bù.', status: 'IN_PROGRESS', createdAt: '2026-03-28T10:00:00+07:00' },
+    { id: 'cn1', studentId: 'simp_246', cvhtId: 'u_pvh', note: 'Đã gọi điện, SV báo lý do gia đình. Kế hoạch học bù trong tuần.', status: 'IN_PROGRESS', createdAt: '2026-03-28T10:00:00+07:00' },
+    { id: 'cn2', studentId: 'simp_246', cvhtId: 'u_pvh', note: 'Theo dõi sau buổi học bù — SV đã nộp 1 bài, chuyên cần cải thiện.', status: 'IN_PROGRESS', createdAt: '2026-03-30T16:00:00+07:00' },
   ],
 
   escalations: [
-    { id: 'e1', studentId: 's14', classId: 'c4', cvhtId: 'u_mxc', reason: 'Không liên hệ được SV sau 48h — đề xuất QLĐT', status: 'OPEN', createdAt: '2026-03-30T14:00:00+07:00' },
+    {
+      id: 'e1', studentId: 's14', classId: 'c4', cvhtId: 'u_mxc',
+      reason: 'Không liên hệ được SV sau 48h — đề xuất QLĐT',
+      status: 'OPEN', createdAt: '2026-03-30T14:00:00+07:00',
+      notes: [
+        {
+          id: 'en1', text: 'Đã gọi 2 lần, SMS 1 lần — chưa phản hồi.',
+          by: 'u_mxc', byName: 'Mai Xuân Chinh', at: '2026-03-30T14:05:00+07:00', kind: 'note',
+        },
+      ],
+    },
   ],
 };
 

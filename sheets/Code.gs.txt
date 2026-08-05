@@ -1,41 +1,83 @@
 /**
- * Google Apps Script — dán vào Extensions → Apps Script của Spreadsheet
+ * Google Apps Script — dán TOÀN BỘ file này vào Extensions → Apps Script
+ *
+ * Lần đầu: chạy hàm setupSheets() một lần (Run) để tạo đủ tab + header.
  * Deploy: Deploy → New deployment → Web app
  *   Execute as: Me
  *   Who has access: Anyone
- * Copy URL Web App → dán vào js/config.js → sheetsWebAppUrl, mode: 'sheets'
- *
- * Tạo sẵn các sheet: Users, Classes, Assignments, AssignmentHistory,
- * RoleHistory, AuditLog, Students, Reports, Notifications
+ * Copy URL → js/config.js → sheetsWebAppUrl, mode: 'sheets'
  */
 
-/*
+var SHEET_HEADERS = {
+  Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
+  Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
+  Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
+  Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
+  Visits: ['id', 'classId', 'cvhtId', 'visitDate', 'observation', 'createdAt', 'demoTag'],
+  AtRiskNotes: ['id', 'studentId', 'cvhtId', 'note', 'status', 'createdAt'],
+  Escalations: ['id', 'studentId', 'classId', 'cvhtId', 'reason', 'status', 'notesJson', 'resolveNote', 'resolvedAt', 'resolvedBy', 'resolvedByName', 'createdAt'],
+  RPointEvals: ['id', 'classId', 'ltId', 'evaluatorId', 'scoresJson', 'total', 'note', 'createdAt', 'demoTag'],
+  Notifications: ['id', 'userId', 'title', 'body', 'read', 'createdAt', 'demoTag'],
+  AssignmentHistory: ['id', 'classId', 'semester', 'role', 'fromUserId', 'fromUserName', 'toUserId', 'toUserName', 'changedById', 'changedByName', 'reason', 'at'],
+  RoleHistory: ['id', 'userId', 'userName', 'fromRole', 'toRole', 'classId', 'changedById', 'changedByName', 'reason', 'at'],
+  AuditLog: ['id', 'actorId', 'actorName', 'action', 'entity', 'entityId', 'beforeJson', 'afterJson', 'at'],
+  Curriculum: ['id', 'majorId', 'cohort', 'cohortLabel', 'matchPattern', 'semestersJson'],
+  LateCounts: ['key', 'count'],
+};
+
+/** Chạy 1 lần trong editor Apps Script để tạo đủ tab */
+function setupSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SHEET_HEADERS).forEach(function (name) {
+    var sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    var headers = SHEET_HEADERS[name];
+    sh.clear();
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.setFrozenRows(1);
+  });
+  // Xóa Sheet1 mặc định nếu còn trống
+  var def = ss.getSheetByName('Sheet1');
+  if (def && ss.getSheets().length > 1) {
+    try { ss.deleteSheet(def); } catch (e) { /* ignore */ }
+  }
+}
+
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const action = body.action;
+    var body = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = body.action;
 
     // Optional: if (body.apiKey !== 'YOUR_KEY') return json_({ error: 'Unauthorized' });
 
+    if (action === 'setup') {
+      setupSheets();
+      return json_({ ok: true, sheets: Object.keys(SHEET_HEADERS) });
+    }
+
     if (action === 'pullAll') {
-      const out = {};
-      ['Users','Classes','Assignments','AssignmentHistory','RoleHistory','AuditLog','Students','Reports','Notifications']
-        .forEach(name => { out[name] = sheetToObjects_(ss.getSheetByName(name)); });
+      var out = {};
+      Object.keys(SHEET_HEADERS).forEach(function (name) {
+        out[name] = sheetToObjects_(ss.getSheetByName(name));
+      });
       return json_(out);
     }
 
     if (action === 'push') {
-      const sh = ss.getSheetByName(body.sheet);
+      var sh = ss.getSheetByName(body.sheet);
       if (!sh) return json_({ error: 'Sheet not found: ' + body.sheet });
-      writeObjects_(sh, body.rows || []);
+      var headers = body.headers && body.headers.length
+        ? body.headers
+        : (SHEET_HEADERS[body.sheet] || Object.keys((body.rows && body.rows[0]) || { id: '' }));
+      writeObjects_(sh, body.rows || [], headers);
       return json_({ ok: true, count: (body.rows || []).length });
     }
 
     if (action === 'append') {
-      const sh = ss.getSheetByName(body.sheet);
-      if (!sh) return json_({ error: 'Sheet not found' });
-      appendObject_(sh, body.row);
+      var shA = ss.getSheetByName(body.sheet);
+      if (!shA) return json_({ error: 'Sheet not found' });
+      appendObject_(shA, body.row, SHEET_HEADERS[body.sheet]);
       return json_({ ok: true });
     }
 
@@ -52,32 +94,43 @@ function json_(obj) {
 
 function sheetToObjects_(sh) {
   if (!sh) return [];
-  const values = sh.getDataRange().getValues();
+  var values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1).filter(r => r.some(c => c !== '')).map(row => {
-    const o = {};
-    headers.forEach((h, i) => { o[h] = row[i]; });
+  var headers = values[0].map(String);
+  return values.slice(1).filter(function (r) {
+    return r.some(function (c) { return c !== ''; });
+  }).map(function (row) {
+    var o = {};
+    headers.forEach(function (h, i) { o[h] = row[i]; });
     return o;
   });
 }
 
-function writeObjects_(sh, rows) {
+function writeObjects_(sh, rows, headers) {
   sh.clearContents();
-  if (!rows.length) return;
-  const headers = Object.keys(rows[0]);
-  const data = [headers].concat(rows.map(r => headers.map(h => r[h] == null ? '' : r[h])));
+  if (!headers || !headers.length) {
+    if (!rows.length) return;
+    headers = Object.keys(rows[0]);
+  }
+  var data = [headers];
+  rows.forEach(function (r) {
+    data.push(headers.map(function (h) {
+      var v = r[h];
+      return v == null ? '' : v;
+    }));
+  });
   sh.getRange(1, 1, data.length, headers.length).setValues(data);
+  sh.setFrozenRows(1);
 }
 
-function appendObject_(sh, row) {
-  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+function appendObject_(sh, row, fallbackHeaders) {
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
   if (!headers.length || !headers[0]) {
-    const keys = Object.keys(row);
-    sh.getRange(1, 1, 1, keys.length).setValues([keys]);
-    sh.appendRow(keys.map(k => row[k] == null ? '' : row[k]));
-    return;
+    headers = fallbackHeaders || Object.keys(row || {});
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
-  sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+  sh.appendRow(headers.map(function (h) {
+    return row[h] == null ? '' : row[h];
+  }));
 }
-*/

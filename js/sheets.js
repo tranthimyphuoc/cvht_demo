@@ -1,24 +1,47 @@
 /**
- * Google Sheets bridge — zero backend
- * Giao tiếp với Apps Script Web App (JSON).
- * Khi mode = local: mọi thứ qua Store/localStorage.
+ * Google Sheets bridge — Apps Script thay backend
+ * mode local  → Store/localStorage
+ * mode sheets → fetch Web App + cache localStorage
  */
 const SheetsAPI = {
-  enabled() {
-    return APP_CONFIG.mode === 'sheets' && !!APP_CONFIG.sheetsWebAppUrl;
-  },
+  /** Thứ tự tab — phải khớp Spreadsheet + Code.gs */
+  SHEET_NAMES: [
+    'Users',
+    'Classes',
+    'Students',
+    'Reports',
+    'Visits',
+    'AtRiskNotes',
+    'Escalations',
+    'RPointEvals',
+    'Notifications',
+    'AssignmentHistory',
+    'RoleHistory',
+    'AuditLog',
+    'Curriculum',
+    'LateCounts',
+  ],
 
-  /** Schema các tab — dùng để tạo Sheet / validate */
+  /** Header dòng 1 mỗi tab */
   SCHEMA: {
-    Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'updatedAt'],
-    Classes: ['id', 'code', 'majorId', 'subject', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active'],
-    Assignments: ['id', 'classId', 'semester', 'role', 'userId', 'userName', 'fromDate', 'toDate', 'status', 'replacedBy', 'note'],
+    Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
+    Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
+    Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
+    Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
+    Visits: ['id', 'classId', 'cvhtId', 'visitDate', 'observation', 'createdAt', 'demoTag'],
+    AtRiskNotes: ['id', 'studentId', 'cvhtId', 'note', 'status', 'createdAt'],
+    Escalations: ['id', 'studentId', 'classId', 'cvhtId', 'reason', 'status', 'notesJson', 'resolveNote', 'resolvedAt', 'resolvedBy', 'resolvedByName', 'createdAt'],
+    RPointEvals: ['id', 'classId', 'ltId', 'evaluatorId', 'scoresJson', 'total', 'note', 'createdAt', 'demoTag'],
+    Notifications: ['id', 'userId', 'title', 'body', 'read', 'createdAt', 'demoTag'],
     AssignmentHistory: ['id', 'classId', 'semester', 'role', 'fromUserId', 'fromUserName', 'toUserId', 'toUserName', 'changedById', 'changedByName', 'reason', 'at'],
     RoleHistory: ['id', 'userId', 'userName', 'fromRole', 'toRole', 'classId', 'changedById', 'changedByName', 'reason', 'at'],
     AuditLog: ['id', 'actorId', 'actorName', 'action', 'entity', 'entityId', 'beforeJson', 'afterJson', 'at'],
-    Students: ['id', 'classId', 'name', 'studentCode', 'status', 'riskReason', 'riskLevel', 'updatedAt'],
-    Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'status', 'totalScore', 'isLate', 'formDataJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote'],
-    Notifications: ['id', 'userId', 'title', 'body', 'read', 'createdAt'],
+    Curriculum: ['id', 'majorId', 'cohort', 'cohortLabel', 'matchPattern', 'semestersJson'],
+    LateCounts: ['key', 'count'],
+  },
+
+  enabled() {
+    return APP_CONFIG.mode === 'sheets' && !!APP_CONFIG.sheetsWebAppUrl;
   },
 
   async request(action, payload = {}) {
@@ -43,14 +66,137 @@ const SheetsAPI = {
   },
 
   async pushEntity(sheet, rows) {
-    return this.request('push', { sheet, rows });
+    const cols = this.SCHEMA[sheet];
+    const normalized = (rows || []).map((r) => this.toSheetRow(sheet, r, cols));
+    return this.request('push', { sheet, rows: normalized, headers: cols });
   },
 
   async appendAudit(entry) {
-    return this.request('append', { sheet: 'AuditLog', row: entry });
+    return this.request('append', {
+      sheet: 'AuditLog',
+      row: this.toSheetRow('AuditLog', entry, this.SCHEMA.AuditLog),
+    });
   },
 
-  /** Xuất CSV từ mảng object (dùng khi chưa có Sheets) */
+  jsonStr(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'string') {
+      try { JSON.parse(v); return v; } catch { return v; }
+    }
+    try { return JSON.stringify(v); } catch { return ''; }
+  },
+
+  jsonParse(v, fallback) {
+    if (v == null || v === '') return fallback;
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(String(v)); } catch { return fallback; }
+  },
+
+  bool(v, defaultVal = true) {
+    if (v === true || v === 'TRUE' || v === 'true' || v === 1 || v === '1') return true;
+    if (v === false || v === 'FALSE' || v === 'false' || v === 0 || v === '0') return false;
+    return defaultVal;
+  },
+
+  /** Object runtime → hàng Sheets (chỉ cột schema) */
+  toSheetRow(sheet, obj, cols) {
+    const c = cols || this.SCHEMA[sheet] || Object.keys(obj || {});
+    const o = obj || {};
+    const row = {};
+    c.forEach((k) => {
+      let v = o[k];
+      if (k === 'formDataJson') v = this.jsonStr(o.formDataJson ?? o.formData);
+      else if (k === 'attachmentsJson') v = this.jsonStr(o.attachmentsJson ?? o.attachments);
+      else if (k === 'linkedReportIdsJson') v = this.jsonStr(o.linkedReportIdsJson ?? o.linkedReportIds);
+      else if (k === 'notesJson') v = this.jsonStr(o.notesJson ?? o.notes);
+      else if (k === 'scoresJson') v = this.jsonStr(o.scoresJson ?? o.scores);
+      else if (k === 'semestersJson') v = this.jsonStr(o.semestersJson ?? o.semesters);
+      else if (k === 'active' || k === 'read' || k === 'isLate' || k === 'demoTag') {
+        if (o[k] === true || o[k] === 'TRUE' || o[k] === 'true' || o[k] === 1 || o[k] === '1') v = 'TRUE';
+        else if (o[k] === false || o[k] === 'FALSE' || o[k] === 'false' || o[k] === 0 || o[k] === '0') v = 'FALSE';
+        else v = o[k] ?? '';
+      } else if (v != null && typeof v === 'object') {
+        v = this.jsonStr(v);
+      } else {
+        v = v == null ? '' : v;
+      }
+      row[k] = v;
+    });
+    return row;
+  },
+
+  /** Hàng Sheets → object runtime */
+  fromSheetRow(sheet, row) {
+    const o = { ...(row || {}) };
+    if (sheet === 'Users') {
+      o.active = this.bool(o.active, true);
+      o.primaryRole = o.primaryRole || o.role || 'CVHT';
+    }
+    if (sheet === 'Classes') {
+      o.active = this.bool(o.active, true);
+      if (o.studentCount !== '' && o.studentCount != null) o.studentCount = Number(o.studentCount);
+    }
+    if (sheet === 'Reports') {
+      o.formData = this.jsonParse(o.formDataJson, {});
+      o.attachments = this.jsonParse(o.attachmentsJson, []);
+      o.linkedReportIds = this.jsonParse(o.linkedReportIdsJson, []);
+      o.totalScore = o.totalScore === '' || o.totalScore == null ? null : Number(o.totalScore);
+      o.isLate = this.bool(o.isLate, false);
+      o.demoTag = this.bool(o.demoTag, false);
+    }
+    if (sheet === 'Visits') o.demoTag = this.bool(o.demoTag, false);
+    if (sheet === 'Escalations') {
+      o.notes = this.jsonParse(o.notesJson, Array.isArray(o.notes) ? o.notes : []);
+    }
+    if (sheet === 'RPointEvals') {
+      o.scores = this.jsonParse(o.scoresJson, {});
+      o.total = o.total === '' || o.total == null ? 0 : Number(o.total);
+      o.demoTag = this.bool(o.demoTag, false);
+    }
+    if (sheet === 'Notifications') {
+      o.read = this.bool(o.read, false);
+      o.demoTag = this.bool(o.demoTag, false);
+    }
+    if (sheet === 'Curriculum') {
+      o.semesters = this.jsonParse(o.semestersJson, []);
+    }
+    if (sheet === 'LateCounts') o.count = Number(o.count) || 0;
+    return o;
+  },
+
+  mapRows(sheet, rows) {
+    return (rows || []).map((r) => this.fromSheetRow(sheet, r));
+  },
+
+  /** Snapshot Store → payload đẩy Sheets */
+  serializeStore(d) {
+    const curriculumRows = Object.entries(d.curriculumPrograms || {}).map(([id, p]) => ({
+      id,
+      majorId: p.majorId,
+      cohort: p.cohort,
+      cohortLabel: p.cohortLabel,
+      matchPattern: p.matchPattern,
+      semesters: p.semesters || [],
+    }));
+    const lateRows = Object.entries(d.lateCounts || {}).map(([key, count]) => ({ key, count }));
+    return {
+      Users: d.users || [],
+      Classes: d.classes || [],
+      Students: d.students || [],
+      Reports: d.reports || [],
+      Visits: d.visits || [],
+      AtRiskNotes: d.atRiskNotes || [],
+      Escalations: d.escalations || [],
+      RPointEvals: d.rpointEvals || [],
+      Notifications: d.notifications || [],
+      AssignmentHistory: d.assignmentHistory || [],
+      RoleHistory: d.roleHistory || [],
+      AuditLog: d.auditLog || [],
+      Curriculum: curriculumRows,
+      LateCounts: lateRows,
+    };
+  },
+
   toCSV(rows, columns) {
     const esc = (v) => {
       const s = v == null ? '' : String(v);
@@ -68,21 +214,5 @@ const SheetsAPI = {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
-  },
-
-  parseCSV(text) {
-    const lines = text.replace(/^\ufeff/, '').trim().split(/\r?\n/);
-    if (lines.length < 2) return [];
-    const headers = lines[0].split(',').map((h) => h.trim());
-    return lines.slice(1).map((line) => {
-      const cols = line.match(/("([^"]|"")*"|[^,]*)/g) || [];
-      const obj = {};
-      headers.forEach((h, i) => {
-        let v = (cols[i] || '').trim();
-        if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
-        obj[h] = v;
-      });
-      return obj;
-    });
   },
 };

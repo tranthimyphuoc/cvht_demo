@@ -31,7 +31,7 @@ const DEMO_FLOWS = [
     roles: ['BI_THU', 'CVHT'],
     steps: [
       { n: 1, account: 'bt@rikkei.edu', role: 'Bí thư', action: 'Tạo BC hoạt động → Gửi CVHT', go: 'report-bt' },
-      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Inbox → Xác nhận BC Bí thư', go: 'inbox' },
+      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Nhận báo cáo → Xác nhận BC Bí thư', go: 'inbox' },
     ],
   },
   {
@@ -41,9 +41,9 @@ const DEMO_FLOWS = [
     roles: ['LOP_TRUONG', 'CVHT', 'QLDT'],
     steps: [
       { n: 1, account: 'lt@rikkei.edu', role: 'Lớp trưởng', action: 'BC gửi CVHT', go: 'report-lt' },
-      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Inbox → Xác nhận + Vào lớp', go: 'inbox' },
-      { n: 3, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'BC tổng hợp → Gửi QLĐT', go: 'report-cvht' },
-      { n: 4, account: 'admin@rikkei.edu', role: 'QLĐT', action: 'Inbox CVHT → Xác nhận đã nắm', go: 'inbox' },
+      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Nhận báo cáo → Xác nhận + Vào lớp', go: 'inbox' },
+      { n: 3, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'BC Tổng hợp → Gửi QLĐT', go: 'report-cvht' },
+      { n: 4, account: 'admin@rikkei.edu', role: 'QLĐT', action: 'Nhận báo cáo → Xác nhận đã nắm', go: 'inbox' },
     ],
   },
   {
@@ -53,7 +53,7 @@ const DEMO_FLOWS = [
     roles: ['LOP_TRUONG_NN', 'CVHT'],
     steps: [
       { n: 1, account: 'lt.nn@rikkei.edu', role: 'LT Ngoại ngữ', action: 'BC chuyên cần → Gửi CVHT', go: 'report-nn' },
-      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Inbox → Xác nhận BC NN', go: 'inbox' },
+      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Nhận báo cáo → Xác nhận BC NN', go: 'inbox' },
     ],
   },
   {
@@ -73,8 +73,8 @@ const DEMO_FLOWS = [
     roles: ['LOP_TRUONG', 'LOP_TRUONG_NN', 'CVHT', 'QLDT'],
     steps: [
       { n: 1, account: 'lt@rikkei.edu', role: 'Lớp trưởng', action: 'Ghi nhận SV nguy cơ', go: 'at-risk' },
-      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'Tư vấn / Chuyển QLĐT', go: 'at-risk' },
-      { n: 3, account: 'admin@rikkei.edu', role: 'QLĐT', action: 'Xử lý case chuyển QLĐT', go: 'escalations' },
+      { n: 2, account: 'cvht@rikkei.edu', role: 'CVHT', action: 'SV nguy cơ → Ghi tư vấn / xem Lịch sử CSSV', go: 'at-risk' },
+      { n: 3, account: 'admin@rikkei.edu', role: 'QLĐT', action: 'Ghi chú / Xử lý xong case QLĐT', go: 'escalations' },
     ],
   },
 ];
@@ -200,7 +200,7 @@ const DemoKit = {
         { userId: 'u_pvh', title: '[Demo] BC Bí thư mới', body: `${DEMO_CLASS_CODE} — Đào Trọng Trí đã gửi báo cáo hoạt động.` },
         { userId: 'u_pvh', title: '[Demo] BC Lớp trưởng CN', body: `${DEMO_CLASS_CODE} — Lu Nhựt Đình đã gửi báo cáo tuần.` },
         { userId: 'u_nq', title: '[Demo] BC Lớp trưởng NN', body: 'HN-ENG-L3A — Nguyễn Bảo Châu đã gửi BC chuyên cần.' },
-        { userId: 'u_cvht_demo', title: '[Demo] Inbox CVHT', body: 'Có BC Bí thư + LT (CN/NN) chờ xử lý.' },
+        { userId: 'u_cvht_demo', title: '[Demo] Nhận báo cáo', body: 'Có BC Bí thư + LT (CN/NN) chờ xử lý.' },
         { userId: 'u_ltnn', title: '[Demo] R-Point', body: 'Kết quả R-Point học phần: 9/10.' },
         { userId: 'u_admin', title: '[Demo] BC tổng hợp CVHT', body: 'Phạm Viết Hùng đã gửi báo cáo tổng hợp.' },
       ].forEach((n) => {

@@ -1,6 +1,6 @@
 /* LocalStorage + Audit + Sheets bridge */
 const Store = {
-  KEY: 'cvht_hub_v15',
+  KEY: 'cvht_hub_v17',
 
   nameToUserId(name, users) {
     if (!name) return null;
@@ -138,11 +138,12 @@ const Store = {
   },
 
   mergeClassOverrides(catalogClasses, savedClasses) {
-    if (!savedClasses?.length) return catalogClasses;
+    if (!savedClasses?.length) return catalogClasses.map((c) => ({ ...c }));
     const byId = Object.fromEntries(savedClasses.map((c) => [c.id, c]));
-    return catalogClasses.map((c) => {
+    const catalogIds = new Set(catalogClasses.map((c) => c.id));
+    const merged = catalogClasses.map((c) => {
       const s = byId[c.id];
-      if (!s) return c;
+      if (!s) return { ...c };
       return {
         ...c,
         subject: s.subject ?? c.subject,
@@ -154,18 +155,27 @@ const Store = {
         note: s.note ?? c.note,
         gvName: s.gvName ?? c.gvName,
         tgName: s.tgName ?? c.tgName,
+        studentCount: s.studentCount ?? c.studentCount,
+        active: s.active !== undefined ? s.active : c.active,
+        level: s.level ?? c.level,
+        programType: s.programType ?? c.programType,
       };
     });
+    // Lớp chỉ có trong saved (nếu sau này có thêm lớp thủ công)
+    savedClasses.forEach((c) => {
+      if (!catalogIds.has(c.id)) merged.push({ ...c });
+    });
+    return merged;
   },
 
   /** Giữ trạng thái/ghi chú nguy cơ đã cập nhật trên SV import */
   mergeStudentOverrides(catalogStudents, savedStudents) {
-    if (!savedStudents?.length) return catalogStudents;
+    if (!savedStudents?.length) return catalogStudents.map((s) => ({ ...s }));
     const byId = Object.fromEntries(savedStudents.map((s) => [s.id, s]));
     const catalogIds = new Set(catalogStudents.map((s) => s.id));
     const merged = catalogStudents.map((s) => {
       const o = byId[s.id];
-      if (!o) return s;
+      if (!o) return { ...s };
       return {
         ...s,
         status: o.status ?? s.status,
@@ -174,13 +184,93 @@ const Store = {
         riskLevel: o.riskLevel ?? s.riskLevel,
         statusUpdatedAt: o.statusUpdatedAt ?? s.statusUpdatedAt,
         statusUpdatedBy: o.statusUpdatedBy ?? s.statusUpdatedBy,
+        name: o.name ?? s.name,
+        email: o.email ?? s.email,
+        phone: o.phone ?? s.phone,
+        studentCode: o.studentCode ?? s.studentCode,
+        classId: o.classId ?? s.classId,
+        enrollStatus: o.enrollStatus ?? s.enrollStatus,
       };
     });
-    // SV ghi nhận thủ công (id không có trong catalog)
     savedStudents.forEach((s) => {
-      if (!catalogIds.has(s.id)) merged.push(s);
+      if (!catalogIds.has(s.id)) merged.push({ ...s });
     });
     return merged;
+  },
+
+  /** Catalog mặc định + chương trình đã sửa/thêm trong local */
+  mergeCurriculumPrograms(catalogPrograms, saved) {
+    const resolved = this.resolveCurriculumPrograms(saved);
+    const base = { ...(catalogPrograms || {}) };
+    if (!resolved || !Object.keys(resolved).length) return base;
+    Object.keys(resolved).forEach((id) => {
+      base[id] = resolved[id];
+    });
+    return base;
+  },
+
+  /** Mảng runtime: ưu tiên saved (kể cả []), fallback catalog seed */
+  pickSavedList(savedArr, catalogArr) {
+    return Array.isArray(savedArr) ? savedArr : (catalogArr || []);
+  },
+
+  /** Giữ user tạo/sửa trong localStorage; catalog (import) làm nền */
+  mergeUserOverrides(catalogUsers, savedUsers) {
+    if (!savedUsers?.length) return catalogUsers.map((u) => ({ ...u }));
+    const byId = Object.fromEntries(savedUsers.map((u) => [u.id, u]));
+    const catalogIds = new Set(catalogUsers.map((u) => u.id));
+    const merged = catalogUsers.map((u) => {
+      const o = byId[u.id];
+      if (!o) return { ...u };
+      return {
+        ...u,
+        name: o.name ?? u.name,
+        email: o.email ?? u.email,
+        phone: o.phone ?? u.phone,
+        campus: o.campus ?? u.campus,
+        primaryRole: o.primaryRole ?? o.role ?? u.primaryRole,
+        role: o.role ?? o.primaryRole ?? u.role,
+        initials: o.initials ?? u.initials,
+        active: o.active !== undefined ? o.active : u.active,
+        password: o.password ?? u.password,
+        aliasOf: o.aliasOf ?? u.aliasOf,
+        classId: o.classId ?? u.classId,
+      };
+    });
+    savedUsers.forEach((u) => {
+      if (!catalogIds.has(u.id)) merged.push({ ...u });
+    });
+    return merged;
+  },
+
+  /** Khôi phục user đã tạo (có trong nhật ký) nhưng bị mất do bug merge cũ */
+  recoverUsersFromAudit(users, auditLog) {
+    const ids = new Set(users.map((u) => u.id));
+    const out = users.slice();
+    (auditLog || []).forEach((l) => {
+      if (l.action !== 'USER_CREATE' || !l.entityId || ids.has(l.entityId)) return;
+      let info = {};
+      try { info = JSON.parse(l.afterJson || '{}'); } catch { /* plain */ }
+      if (!info.name && !info.email) return;
+      const name = info.name || l.entityId;
+      const parts = String(name).split(/\s+/);
+      const initials = parts.length >= 2
+        ? (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase()
+        : String(name).slice(0, 2).toUpperCase();
+      out.push({
+        id: l.entityId,
+        email: (info.email || `${l.entityId}@rikkei.edu`).toLowerCase(),
+        password: '123456',
+        name,
+        primaryRole: info.primaryRole || 'CVHT',
+        campus: info.campus || 'HN',
+        initials,
+        phone: info.phone || '',
+        active: true,
+      });
+      ids.add(l.entityId);
+    });
+    return out;
   },
 
   resolveCurriculumPrograms(saved) {
@@ -211,25 +301,38 @@ const Store = {
         return this.applyCurriculum(catalog);
       }
       const saved = JSON.parse(raw);
+      let users = this.mergeUserOverrides(catalog.users, saved.users);
+      const beforeRecover = users.length;
+      users = this.recoverUsersFromAudit(users, this.pickSavedList(saved.auditLog, catalog.auditLog));
+
+      /**
+       * Quy tắc merge (tránh mất dữ liệu đã thêm):
+       * - users / classes / students: catalog nền + overlay saved + append id mới
+       * - curriculumPrograms: catalog mặc định + saved đè / thêm khóa
+       * - reports, visits, rpoint, notes, escalations, histories, audit, lateCounts: lấy nguyên từ saved
+       */
       const data = {
         ...catalog,
         classes: this.mergeClassOverrides(catalog.classes, saved.classes),
         students: this.mergeStudentOverrides(catalog.students, saved.students),
-        curriculumPrograms: this.resolveCurriculumPrograms(saved) || catalog.curriculumPrograms,
-        reports: saved.reports || [],
-        visits: saved.visits || [],
-        atRiskNotes: saved.atRiskNotes ?? catalog.atRiskNotes,
-        escalations: saved.escalations ?? catalog.escalations,
-        notifications: saved.notifications ?? catalog.notifications,
-        evaluations: saved.evaluations || [],
-        rpointEvals: saved.rpointEvals || [],
-        lateCounts: saved.lateCounts || {},
-        assignmentHistory: saved.assignmentHistory ?? catalog.assignmentHistory,
-        roleHistory: saved.roleHistory ?? catalog.roleHistory,
-        auditLog: saved.auditLog ?? catalog.auditLog,
+        users,
+        curriculumPrograms: this.mergeCurriculumPrograms(catalog.curriculumPrograms, saved),
+        reports: this.pickSavedList(saved.reports, []),
+        visits: this.pickSavedList(saved.visits, []),
+        atRiskNotes: this.pickSavedList(saved.atRiskNotes, catalog.atRiskNotes),
+        escalations: this.pickSavedList(saved.escalations, catalog.escalations),
+        notifications: this.pickSavedList(saved.notifications, catalog.notifications),
+        evaluations: this.pickSavedList(saved.evaluations, []),
+        rpointEvals: this.pickSavedList(saved.rpointEvals, []),
+        lateCounts: (saved.lateCounts && typeof saved.lateCounts === 'object') ? saved.lateCounts : {},
+        assignmentHistory: this.pickSavedList(saved.assignmentHistory, catalog.assignmentHistory),
+        roleHistory: this.pickSavedList(saved.roleHistory, catalog.roleHistory),
+        auditLog: this.pickSavedList(saved.auditLog, catalog.auditLog),
       };
+      if (users.length > beforeRecover) this.save(data);
       return this.applyCurriculum(data);
-    } catch {
+    } catch (err) {
+      console.warn('Store.load failed, using defaults', err);
       return this.applyCurriculum(this.defaults());
     }
   },
@@ -364,6 +467,7 @@ const Store = {
       });
       updated = u;
     });
+    this.queueSheetsPush(['Users', 'AuditLog', 'RoleHistory']);
     return updated;
   },
 
@@ -380,6 +484,7 @@ const Store = {
       password: payload.password || '123456',
       name,
       primaryRole: payload.primaryRole || 'CVHT',
+      role: payload.primaryRole || 'CVHT',
       campus: payload.campus || 'HN',
       initials,
       phone: payload.phone || '',
@@ -407,10 +512,11 @@ const Store = {
         entity: 'User',
         entityId: id,
         beforeJson: '',
-        afterJson: JSON.stringify({ name: nu.name, email: nu.email, primaryRole: nu.primaryRole }),
+        afterJson: JSON.stringify({ name: nu.name, email: nu.email, primaryRole: nu.primaryRole, campus: nu.campus }),
         at: new Date().toISOString(),
       });
     });
+    this.queueSheetsPush(['Users', 'AuditLog', 'RoleHistory']);
     return nu;
   },
 
@@ -426,9 +532,20 @@ const Store = {
       const cls = d.classes.find((c) => c.id === classId);
       if (!cls) throw new Error('Không tìm thấy lớp');
 
+      const ensureUser = (uid) => {
+        if (!uid) return null;
+        let u = d.users.find((x) => x.id === uid);
+        if (u) return u;
+        const seed = SEED.users.find((x) => x.id === uid);
+        if (!seed) return null;
+        u = { ...seed };
+        d.users.push(u);
+        return u;
+      };
+
       const fromId = cls[field];
-      const fromUser = fromId ? (d.users.find((u) => u.id === fromId) || SEED.users.find((u) => u.id === fromId)) : null;
-      const toUser = newUserId ? (d.users.find((u) => u.id === newUserId) || SEED.users.find((u) => u.id === newUserId)) : null;
+      const fromUser = ensureUser(fromId);
+      const toUser = ensureUser(newUserId);
 
       const before = { [field]: fromId, name: fromUser?.name || '—' };
       cls[field] = newUserId || null;
@@ -499,6 +616,79 @@ const Store = {
 
       result = { cls, ah };
     });
+    this.queueSheetsPush(['Classes', 'AssignmentHistory', 'RoleHistory', 'AuditLog', 'Users']);
     return result;
+  },
+
+  /** Đẩy snapshot lên Google Sheets (nếu mode = sheets) */
+  queueSheetsPush(sheets) {
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+    const snap = SheetsAPI.serializeStore(this.get());
+    (sheets || SheetsAPI.SHEET_NAMES).forEach((name) => {
+      const rows = snap[name];
+      if (rows == null) return;
+      SheetsAPI.pushEntity(name, rows).catch((err) => console.warn('Sheets push', name, err));
+    });
+  },
+
+  async pullFromSheets() {
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
+      throw new Error('Chưa bật mode sheets hoặc thiếu URL Web App trong js/config.js');
+    }
+    const remote = await SheetsAPI.pullAll();
+    this.update((d) => {
+      if (remote.Users) {
+        const norm = SheetsAPI.mapRows('Users', remote.Users);
+        d.users = this.mergeUserOverrides(d.users, norm);
+      }
+      if (remote.Classes) {
+        d.classes = this.mergeClassOverrides(d.classes, SheetsAPI.mapRows('Classes', remote.Classes));
+      }
+      if (remote.Students) {
+        d.students = this.mergeStudentOverrides(d.students, SheetsAPI.mapRows('Students', remote.Students));
+      }
+      if (remote.Reports) d.reports = SheetsAPI.mapRows('Reports', remote.Reports);
+      if (remote.Visits) d.visits = SheetsAPI.mapRows('Visits', remote.Visits);
+      if (remote.AtRiskNotes) d.atRiskNotes = SheetsAPI.mapRows('AtRiskNotes', remote.AtRiskNotes);
+      if (remote.Escalations) d.escalations = SheetsAPI.mapRows('Escalations', remote.Escalations);
+      if (remote.RPointEvals) d.rpointEvals = SheetsAPI.mapRows('RPointEvals', remote.RPointEvals);
+      if (remote.Notifications) d.notifications = SheetsAPI.mapRows('Notifications', remote.Notifications);
+      if (remote.AssignmentHistory) d.assignmentHistory = SheetsAPI.mapRows('AssignmentHistory', remote.AssignmentHistory);
+      if (remote.RoleHistory) d.roleHistory = SheetsAPI.mapRows('RoleHistory', remote.RoleHistory);
+      if (remote.AuditLog) d.auditLog = SheetsAPI.mapRows('AuditLog', remote.AuditLog);
+      if (remote.Curriculum?.length) {
+        const programs = {};
+        SheetsAPI.mapRows('Curriculum', remote.Curriculum).forEach((p) => {
+          if (!p.id) return;
+          programs[p.id] = {
+            majorId: p.majorId,
+            cohort: p.cohort,
+            cohortLabel: p.cohortLabel,
+            matchPattern: p.matchPattern,
+            semesters: p.semesters || [],
+          };
+        });
+        d.curriculumPrograms = this.mergeCurriculumPrograms(d.curriculumPrograms, { curriculumPrograms: programs });
+      }
+      if (remote.LateCounts) {
+        const lc = {};
+        SheetsAPI.mapRows('LateCounts', remote.LateCounts).forEach((r) => {
+          if (r.key) lc[r.key] = Number(r.count) || 0;
+        });
+        d.lateCounts = lc;
+      }
+    });
+    return this.get();
+  },
+
+  async pushAllToSheets() {
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
+      throw new Error('Chưa bật mode sheets hoặc thiếu URL Web App trong js/config.js');
+    }
+    const snap = SheetsAPI.serializeStore(this.get());
+    for (const name of SheetsAPI.SHEET_NAMES) {
+      await SheetsAPI.pushEntity(name, snap[name] || []);
+    }
+    return { ok: true, sheets: SheetsAPI.SHEET_NAMES.length };
   },
 };

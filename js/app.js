@@ -18,9 +18,16 @@
     editingReportId: null,
     reportFilterKind: '',
     reportFilterStatus: '',
+    reportFilterClass: '',
+    reportFilterSemester: '',
+    reportFilterSubject: '',
+    reportFilterQ: '',
+    reportFilterFrom: '',
+    reportFilterTo: '',
     classFilterCampus: '',
     classFilterMajor: '',
     classFilterProgram: '',
+    trace: {},
   };
 
   window.App = {
@@ -165,6 +172,101 @@
     return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   }
 
+  /** Ngày local YYYY-MM-DD từ ISO / date string */
+  function isoDay(iso) {
+    if (!iso) return '';
+    const s = String(iso);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s) && s.length <= 10) return s.slice(0, 10);
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return s.slice(0, 10);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function inDateRange(iso, from, to) {
+    if (!from && !to) return true;
+    const day = isoDay(iso);
+    if (!day) return true;
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  }
+
+  function textMatch(hay, q) {
+    if (!q) return true;
+    return String(hay || '').toLowerCase().includes(String(q).trim().toLowerCase());
+  }
+
+  function getTrace(key) {
+    if (!state.trace) state.trace = {};
+    if (!state.trace[key]) {
+      state.trace[key] = { q: '', classId: '', dateFrom: '', dateTo: '', kind: 'all', status: '' };
+    }
+    return state.trace[key];
+  }
+
+  function clearTrace(key) {
+    state.trace[key] = { q: '', classId: '', dateFrom: '', dateTo: '', kind: 'all', status: '' };
+  }
+
+  /**
+   * Thanh lọc truy vết chung: tìm kiếm · lớp · khoảng ngày · (tuỳ chọn) loại/trạng thái
+   */
+  function traceBarHTML(key, {
+    classes = [],
+    kinds = null,
+    statuses = null,
+    placeholder = 'Tìm theo tên, lớp, nội dung…',
+    resultText = '',
+    extra = '',
+  } = {}) {
+    const t = getTrace(key);
+    return `<div class="trace-bar" data-trace="${escAttr(key)}">
+      <input type="search" id="traceQ" class="trace-q" placeholder="${escAttr(placeholder)}" value="${escAttr(t.q)}" />
+      ${classes.length ? `<select id="traceClass" class="trace-class">
+        <option value="">Tất cả lớp</option>
+        ${classes.map((c) => `<option value="${c.id}" ${t.classId === c.id ? 'selected' : ''}>${esc(c.code)}</option>`).join('')}
+      </select>` : ''}
+      <label class="trace-date"><span>Từ ngày</span><input type="date" id="traceFrom" value="${escAttr(t.dateFrom)}" /></label>
+      <label class="trace-date"><span>Đến ngày</span><input type="date" id="traceTo" value="${escAttr(t.dateTo)}" /></label>
+      ${kinds ? `<select id="traceKind">${kinds.map(([v, l]) =>
+        `<option value="${v}" ${(t.kind || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
+      ${statuses ? `<select id="traceStatus">${statuses.map(([v, l]) =>
+        `<option value="${v}" ${(t.status || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
+      ${extra}
+      <button type="button" class="btn btn-ghost btn-sm" id="traceClear">Xóa lọc</button>
+      ${resultText ? `<span class="trace-result">${esc(resultText)}</span>` : ''}
+    </div>`;
+  }
+
+  function bindTraceBar(key, redraw) {
+    const read = () => {
+      const t = getTrace(key);
+      t.q = $('#traceQ')?.value || '';
+      t.classId = $('#traceClass')?.value || '';
+      t.dateFrom = $('#traceFrom')?.value || '';
+      t.dateTo = $('#traceTo')?.value || '';
+      if ($('#traceKind')) t.kind = $('#traceKind').value;
+      if ($('#traceStatus')) t.status = $('#traceStatus').value;
+    };
+    const run = () => { read(); redraw(); };
+    const q = $('#traceQ');
+    if (q) q.oninput = run;
+    ['traceClass', 'traceFrom', 'traceTo', 'traceKind', 'traceStatus'].forEach((id) => {
+      const el = $(`#${id}`);
+      if (el) el.onchange = run;
+    });
+    const clr = $('#traceClear');
+    if (clr) clr.onclick = () => { clearTrace(key); redraw(); };
+  }
+
+  function passTrace(t, { at, classId, searchText }) {
+    if (t.classId && classId !== t.classId) return false;
+    if (!inDateRange(at, t.dateFrom, t.dateTo)) return false;
+    if (!textMatch(searchText, t.q)) return false;
+    return true;
+  }
+
   function lateCountFor(reporterId, classId) {
     return db().lateCounts[`${reporterId}_${classId}`] || 0;
   }
@@ -215,18 +317,88 @@
         afterJson: `${status}: ${note || ''}`,
         at: now,
       });
-      if (opts.addCounselNote && note && (status === 'AT_RISK' || status === 'WATCH')) {
-        d.atRiskNotes.unshift({
-          id: Store.uid('cn'),
-          studentId,
-          cvhtId: Store.realId(user),
-          note: `[${STUDENT_STATUS[status]?.label || status}] ${note}`,
-          status: 'IN_PROGRESS',
-          createdAt: now,
-        });
-      }
     });
     return studentName;
+  }
+
+  function parseStatusSnippet(raw) {
+    const s = String(raw || '').trim();
+    const m = s.match(/^([A-Z_]+):\s*(.*)$/s);
+    if (!m) return { code: null, note: s };
+    return { code: m[1], note: (m[2] || '').trim() };
+  }
+
+  function statusBadgeByCode(code) {
+    const meta = STUDENT_STATUS[code];
+    if (!meta) return `<span class="badge badge-muted">${esc(code || '—')}</span>`;
+    return `<span class="badge ${meta.cls}">${meta.label}</span>`;
+  }
+
+  /** Lịch sử CSSV: đổi trạng thái + biên bản tư vấn + chuyển QLĐT */
+  function buildCssvHistory() {
+    const scopeIds = isAdmin() ? null : new Set(studentsInScope().map((s) => s.id));
+    const inScope = (studentId) => !scopeIds || scopeIds.has(studentId);
+    const events = [];
+
+    db().auditLog.forEach((l) => {
+      if (l.action !== 'STUDENT_STATUS') return;
+      if (!inScope(l.entityId)) return;
+      const s = allStudents().find((x) => x.id === l.entityId);
+      const from = parseStatusSnippet(l.beforeJson);
+      const to = parseStatusSnippet(l.afterJson);
+      events.push({
+        id: l.id,
+        kind: 'status',
+        at: l.at,
+        studentId: l.entityId,
+        classId: s?.classId || '',
+        actorId: l.actorId,
+        actorName: l.actorName || userName(l.actorId),
+        fromCode: from.code,
+        toCode: to.code,
+        note: to.note || from.note || '',
+      });
+    });
+
+    db().atRiskNotes.forEach((n) => {
+      if (!inScope(n.studentId)) return;
+      /* Bỏ ghi chú tự sinh từ đổi trạng thái cũ (tránh trùng audit) */
+      if (/^\[(Ổn định|Có vấn đề|Nguy cơ|Tạm ngưng)\]/.test(n.note || '')) return;
+      const s = allStudents().find((x) => x.id === n.studentId);
+      events.push({
+        id: n.id,
+        kind: 'counsel',
+        at: n.createdAt,
+        studentId: n.studentId,
+        classId: s?.classId || '',
+        actorId: n.cvhtId,
+        actorName: userName(n.cvhtId),
+        note: n.note || '',
+        status: n.status,
+      });
+    });
+
+    db().escalations.forEach((e) => {
+      if (!inScope(e.studentId)) return;
+      const latest = Array.isArray(e.notes) && e.notes.length
+        ? e.notes[e.notes.length - 1].text
+        : (e.resolveNote || e.reason || '');
+      events.push({
+        id: e.id,
+        kind: 'escalate',
+        at: e.resolvedAt || e.createdAt,
+        studentId: e.studentId,
+        classId: e.classId || '',
+        actorId: e.resolvedBy || e.cvhtId,
+        actorName: e.resolvedByName || userName(e.cvhtId),
+        note: e.status === 'CLOSED' && e.resolveNote
+          ? `${e.reason}\n→ Kết luận: ${e.resolveNote}`
+          : (latest || e.reason || ''),
+        status: e.status,
+      });
+    });
+
+    return events.sort((a, b) => new Date(b.at) - new Date(a.at));
   }
 
   function openStudentStatusModal(studentId, classId) {
@@ -484,20 +656,20 @@
     CVHT: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp phụ trách', icon: '▦' },
-      { id: 'inbox', label: 'Inbox báo cáo', icon: '✉', badge: 'lt' },
+      { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'lt' },
       { id: 'visits', label: 'Vào lớp / quan sát', icon: '◎' },
-      { id: 'report-cvht', label: 'BC tổng hợp QLĐT', icon: '✎' },
+      { id: 'report-cvht', label: 'BC Tổng hợp', icon: '✎' },
       { id: 'rpoint', label: 'R-Point NN', icon: '★' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
-      { id: 'counseling', label: 'Tư vấn CSSV', icon: '♡' },
+      { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
     ],
     QLDT: [
       { group: 'Điều hành' },
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
-      { id: 'inbox', label: 'Inbox CVHT', icon: '✉', badge: 'cvht' },
+      { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'cvht' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
 
       { group: 'Lớp · Cơ sở' },
@@ -509,7 +681,7 @@
       { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
       { id: 'rpoint', label: 'R-Point NN', icon: '★' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
-      { id: 'counseling', label: 'Tư vấn CSSV', icon: '♡' },
+      { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
 
       { group: 'Nhân sự & hệ thống', collapse: true, routes: ['people', 'admin', 'subjects', 'audit', 'sheets'] },
@@ -969,13 +1141,13 @@
       CVHT: {
         title: `Xin chào, ${user.name.split(' ').slice(-2).join(' ')}`,
         sub: `${pending.length} BC từ Bí thư / LT (CN+NN) chờ xử lý · Vào lớp quan sát · Tổng hợp gửi QLĐT.`,
-        cta: pending.length ? 'Inbox →' : 'BC tổng hợp →',
+        cta: pending.length ? 'Nhận báo cáo →' : 'BC Tổng hợp →',
         go: pending.length ? 'inbox' : 'report-cvht',
       },
       QLDT: {
         title: 'Giám sát toàn chương trình',
         sub: `${pending.length} BC tổng hợp CVHT chờ xác nhận · Xem full CN + Ngoại ngữ.`,
-        cta: pending.length ? 'Inbox CVHT →' : 'Mọi báo cáo →',
+        cta: pending.length ? 'Nhận báo cáo →' : 'Mọi báo cáo →',
         go: pending.length ? 'inbox' : 'reports',
       },
     };
@@ -996,7 +1168,7 @@
       </div>
       <div class="kpi-grid">
         <div class="kpi"><div class="label">Lớp phụ trách</div><div class="value">${classes.length}</div><div class="hint">Trong phạm vi của bạn</div></div>
-        <div class="kpi warn"><div class="label">Chờ xử lý</div><div class="value">${pending.length}</div><div class="hint">Inbox hiện tại</div></div>
+        <div class="kpi warn"><div class="label">Chờ xử lý</div><div class="value">${pending.length}</div><div class="hint">Chờ nhận báo cáo</div></div>
         <div class="kpi danger"><div class="label">SV nguy cơ</div><div class="value">${atRisk.length}</div><div class="hint">Cần theo dõi</div></div>
         <div class="kpi info"><div class="label">Thông báo chưa đọc</div><div class="value">${unreadCount()}</div><div class="hint">Trong hộp thư</div></div>
       </div>
@@ -1940,10 +2112,10 @@
   function pageInbox() {
     const list = pendingForRole().sort((a, b) => (b.submittedAt || b.createdAt).localeCompare(a.submittedAt || a.createdAt));
     const titles = {
-      CVHT: 'Inbox — Bí thư / LT (CN + NN)',
-      QLDT: 'Inbox CVHT — báo cáo tổng hợp',
+      CVHT: 'Nhận báo cáo — Bí thư / LT (CN + NN)',
+      QLDT: 'Nhận báo cáo — BC tổng hợp từ CVHT',
     };
-    setPage(titles[role()] || 'Inbox', `${list.length} mục`);
+    setPage(titles[role()] || 'Nhận báo cáo', `${list.length} mục`);
     $('#content').innerHTML = `
       ${flowBanner()}
       <div class="panel"><div class="table-wrap"><table>
@@ -1957,7 +2129,7 @@
             <td>${r.totalScore ?? '—'}</td>
             <td style="font-size:12px">${Scoring.fmtDateTime(r.submittedAt || r.createdAt)}</td>
             <td><button class="btn btn-primary btn-sm" onclick="App.go('reports/${r.id}')">Xử lý</button></td>
-          </tr>`).join('') : '<tr><td colspan="7"><div class="empty">Inbox trống</div></td></tr>'}
+          </tr>`).join('') : '<tr><td colspan="7"><div class="empty">Chưa có báo cáo chờ nhận</div></td></tr>'}
         </tbody>
       </table></div></div>`;
   }
@@ -2001,6 +2173,9 @@
     const filterClass = state.reportFilterClass || '';
     const filterSemester = state.reportFilterSemester || '';
     const filterSubject = state.reportFilterSubject || '';
+    const filterQ = state.reportFilterQ || '';
+    const filterFrom = state.reportFilterFrom || '';
+    const filterTo = state.reportFilterTo || '';
     if (filterKind) reports = reports.filter((r) => r.reportKind === filterKind);
     if (filterStatus) reports = reports.filter((r) => r.status === filterStatus);
     if (filterClass) reports = reports.filter((r) => r.classId === filterClass);
@@ -2011,6 +2186,18 @@
     if (filterSubject) reports = reports.filter((r) => {
       const ctx = Curriculum.resolveReportContext(r, classById(r.classId));
       return ctx.subjectCode === filterSubject;
+    });
+    reports = reports.filter((r) => {
+      const at = r.submittedAt || r.createdAt;
+      if (!inDateRange(at, filterFrom, filterTo)) return false;
+      if (!filterQ) return true;
+      const cls = classById(r.classId);
+      const ctx = Curriculum.resolveReportContext(r, cls);
+      const note = r.summaryNote || r.activityNote || '';
+      return textMatch([
+        cls?.code, userName(r.reporterId), note, ctx.subjectName, ctx.subjectCode,
+        kindShort(r.reportKind).label, STATUS_LABELS[r.status]?.label,
+      ].join(' '), filterQ);
     });
 
     const scopeClasses = classesForUser().filter((c) => c.programType !== 'NGOAI_NGU' || role() === 'QLDT' || role() === 'CVHT');
@@ -2039,7 +2226,7 @@
       QLDT: ['Toàn bộ báo cáo', 'Xem full mọi vai trò · mọi lớp'],
     };
     const [title, sub] = titles[r] || ['Lịch sử báo cáo', `${reports.length} báo cáo`];
-    setPage(title, `${reports.length} báo cáo · ${sub}`);
+    setPage(title, `${reports.length} báo cáo · Lọc theo tên / lớp / ngày`);
 
     const showKindFilter = r === 'CVHT' || r === 'QLDT';
     const kindOpts = r === 'CVHT'
@@ -2070,9 +2257,12 @@
         <div class="report-stat"><span class="n">${counts.done}</span><span class="l">Đã tiếp nhận</span></div>
         <div class="report-stat"><span class="n">${reportsForViewer().length}</span><span class="l">Tổng</span></div>
       </div>
-      <div class="filters report-filters report-filters-wide">
+      <div class="filters report-filters report-filters-wide trace-bar" style="margin-bottom:12px">
+        <input type="search" id="fQ" class="trace-q" placeholder="Tìm lớp, người gửi, môn, nội dung…" value="${escAttr(filterQ)}" />
         <select id="fClass"><option value="">Tất cả lớp</option>${scopeClasses.map((c) =>
           `<option value="${c.id}" ${filterClass === c.id ? 'selected' : ''}>${esc(c.code)}</option>`).join('')}</select>
+        <label class="trace-date"><span>Từ ngày</span><input type="date" id="fFrom" value="${escAttr(filterFrom)}" /></label>
+        <label class="trace-date"><span>Đến ngày</span><input type="date" id="fTo" value="${escAttr(filterTo)}" /></label>
         <select id="fSemester"><option value="">Tất cả học kỳ</option>${semesterOpts.map((s) =>
           `<option value="${s}" ${filterSemester === s ? 'selected' : ''}>${esc(Curriculum.semesterLabel(s))}</option>`).join('')}</select>
         <select id="fSubject"><option value="">Tất cả môn</option>${subjectOpts.map((s) =>
@@ -2081,6 +2271,8 @@
           `<option value="${v}" ${filterKind === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
         <select id="fStatus">${statusOpts.map(([v, l]) =>
           `<option value="${v}" ${filterStatus === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <button type="button" class="btn btn-ghost btn-sm" id="fClear">Xóa lọc</button>
+        <span class="trace-result">${reports.length} kết quả</span>
       </div>
       <div class="report-list">
         ${reports.length ? reports.map((rep) => {
@@ -2110,19 +2302,42 @@
               ${canEditDraft(rep) ? `<button class="btn btn-ok btn-sm" onclick="App.submitDraft('${rep.id}')">Gửi</button>` : ''}
             </div>
           </article>`;
-        }).join('') : `<div class="empty panel" style="padding:32px">Chưa có báo cáo trong phạm vi của bạn</div>`}
+        }).join('') : `<div class="empty panel" style="padding:32px">Không có báo cáo khớp bộ lọc</div>`}
       </div>`;
 
-    const fk = $('#fKind');
-    if (fk) fk.onchange = () => { state.reportFilterKind = fk.value; pageReports(); };
-    const fs = $('#fStatus');
-    if (fs) fs.onchange = () => { state.reportFilterStatus = fs.value; pageReports(); };
-    const fc = $('#fClass');
-    if (fc) fc.onchange = () => { state.reportFilterClass = fc.value; pageReports(); };
+    const bind = (id, key, redraw = true) => {
+      const el = $(id);
+      if (!el) return;
+      const apply = () => {
+        state[key] = el.value;
+        if (redraw) pageReports();
+      };
+      if (el.type === 'search' || el.tagName === 'INPUT' && el.type !== 'date') el.oninput = apply;
+      else el.onchange = apply;
+    };
+    bind('#fQ', 'reportFilterQ');
+    bind('#fKind', 'reportFilterKind');
+    bind('#fStatus', 'reportFilterStatus');
+    bind('#fClass', 'reportFilterClass');
+    bind('#fFrom', 'reportFilterFrom');
+    bind('#fTo', 'reportFilterTo');
     const fsem = $('#fSemester');
     if (fsem) fsem.onchange = () => { state.reportFilterSemester = fsem.value; state.reportFilterSubject = ''; pageReports(); };
-    const fsub = $('#fSubject');
-    if (fsub) fsub.onchange = () => { state.reportFilterSubject = fsub.value; pageReports(); };
+    bind('#fSubject', 'reportFilterSubject');
+    const clr = $('#fClear');
+    if (clr) {
+      clr.onclick = () => {
+        state.reportFilterKind = '';
+        state.reportFilterStatus = '';
+        state.reportFilterClass = '';
+        state.reportFilterSemester = '';
+        state.reportFilterSubject = '';
+        state.reportFilterQ = '';
+        state.reportFilterFrom = '';
+        state.reportFilterTo = '';
+        pageReports();
+      };
+    }
   }
 
   function pageReportDetail(id) {
@@ -2148,7 +2363,7 @@
           <div class="field"><label>Ghi chú nội bộ</label><textarea id="reviewNote" rows="2"></textarea></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ok" id="btnAck">Xác nhận đã đọc</button>
-            <button class="btn btn-primary" onclick="App.go('report-cvht')">Lập BC tổng hợp QLĐT →</button>
+            <button class="btn btn-primary" onclick="App.go('report-cvht')">Lập BC Tổng hợp →</button>
             ${r.reportKind === 'LOP_TRUONG_NN' ? '<button class="btn btn-ghost" onclick="App.go(\'rpoint\')">Đánh giá R-Point →</button>' : ''}
           </div>
         </div></div>`;
@@ -2280,10 +2495,21 @@
   function pageVisits() {
     if (!['CVHT', 'QLDT'].includes(role())) return denyAccess();
     const classes = classesForUser();
-    const visits = (db().visits || []).filter((v) => isAdmin() || classes.some((c) => c.id === v.classId))
+    const allVisits = (db().visits || []).filter((v) => isAdmin() || classes.some((c) => c.id === v.classId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const t = getTrace('visits');
+    const visits = allVisits.filter((v) => passTrace(t, {
+      at: v.visitDate || v.createdAt,
+      classId: v.classId,
+      searchText: [
+        classById(v.classId)?.code,
+        subjectOf(classById(v.classId)),
+        userName(v.cvhtId),
+        v.observation,
+      ].join(' '),
+    }));
 
-    setPage('Vào lớp / quan sát', 'CVHT ghi nhận buổi khảo sát lớp');
+    setPage('Vào lớp / quan sát', 'Lọc lịch sử theo lớp · ngày · nội dung');
     $('#content').innerHTML = `
       ${flowBanner()}
       ${role() === 'CVHT' ? `<div class="panel"><div class="panel-head"><h2>Ghi nhận buổi vào lớp</h2></div>
@@ -2297,16 +2523,32 @@
             <textarea id="vNote" rows="3" placeholder="Sĩ số, không khí lớp, vấn đề phát sinh…"></textarea></div>
           <button class="btn btn-primary" id="btnSaveVisit">Lưu buổi vào lớp</button>
         </div></div>` : ''}
-      <div class="panel"><div class="panel-head"><h2>Lịch sử vào lớp</h2></div>
-        <div class="panel-body"><div class="timeline">
-          ${visits.length ? visits.map((v) => `
-            <div class="timeline-item">
-              <div class="time">${Scoring.fmtDate(v.visitDate)} · ${classById(v.classId)?.code} · ${esc(subjectOf(classById(v.classId)))} · ${userName(v.cvhtId)}</div>
-              <p style="margin-top:4px;font-size:.9rem">${esc(v.observation)}</p>
-            </div>`).join('') : '<div class="empty">Chưa có buổi vào lớp</div>'}
-        </div></div>
+      <div class="panel"><div class="panel-head"><h2>Lịch sử vào lớp</h2>
+        <span style="font-size:12px;color:var(--muted)">${visits.length}/${allVisits.length} buổi</span></div>
+        <div class="panel-body" style="padding-top:0">
+          ${traceBarHTML('visits', {
+            classes,
+            placeholder: 'Tìm lớp, CVHT, nội dung quan sát…',
+            resultText: `${visits.length} buổi`,
+          })}
+          <div class="table-wrap"><table class="trace-table">
+            <thead><tr><th>Ngày</th><th>Lớp</th><th>Môn</th><th>CVHT</th><th>Quan sát</th></tr></thead>
+            <tbody>${visits.length ? visits.map((v) => {
+              const cls = classById(v.classId);
+              return `<tr>
+                <td class="trace-time">${Scoring.fmtDate(v.visitDate)}</td>
+                <td><strong>${esc(cls?.code || '—')}</strong></td>
+                <td>${esc(subjectOf(cls))}</td>
+                <td>${esc(userName(v.cvhtId))}</td>
+                <td><div class="trace-cell-note">${esc(v.observation)}</div></td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="5"><div class="empty">${allVisits.length ? 'Không có buổi khớp bộ lọc' : 'Chưa có buổi vào lớp'}</div></td></tr>`}
+            </tbody>
+          </table></div>
+        </div>
       </div>`;
 
+    bindTraceBar('visits', pageVisits);
     const btn = $('#btnSaveVisit');
     if (btn) {
       btn.onclick = () => {
@@ -2333,8 +2575,24 @@
   function pageRPoint() {
     if (!['CVHT', 'QLDT'].includes(role())) return denyAccess();
     const nnClasses = classesForUser().filter((c) => c.programType === 'NGOAI_NGU');
-    const evals = (db().rpointEvals || []).filter((e) => isAdmin() || nnClasses.some((c) => c.id === e.classId))
+    const allEvals = (db().rpointEvals || []).filter((e) => isAdmin() || nnClasses.some((c) => c.id === e.classId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const t = getTrace('rpoint');
+    const evals = allEvals.filter((e) => {
+      const g = Scoring.rpointLabel(e.total);
+      return passTrace(t, {
+        at: e.createdAt,
+        classId: e.classId,
+        searchText: [
+          classById(e.classId)?.code,
+          userName(e.ltId),
+          userName(e.evaluatorId),
+          e.note,
+          g.label,
+          String(e.total),
+        ].join(' '),
+      });
+    });
 
     setPage('R-Point Ngoại ngữ', 'Điều 13 · tối đa 10 điểm / học phần');
     $('#content').innerHTML = `
@@ -2360,22 +2618,31 @@
           </div>
         </div></div>` : '<div class="empty">Không có lớp Ngoại ngữ trong phạm vi</div>'}
       <div class="panel"><div class="panel-head"><h2>Lịch sử R-Point</h2></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Lớp</th><th>Lớp trưởng</th><th>Điểm</th><th>Xếp loại</th><th>Người chấm</th><th>Thời gian</th></tr></thead>
-          <tbody>${evals.length ? evals.map((e) => {
-            const g = Scoring.rpointLabel(e.total);
-            return `<tr>
-              <td><strong>${classById(e.classId)?.code}</strong></td>
-              <td>${userName(e.ltId)}</td>
-              <td><strong>${e.total}</strong>/10</td>
-              <td><span class="badge ${g.cls}">${g.label}</span></td>
-              <td>${userName(e.evaluatorId)}</td>
-              <td style="font-size:12px">${Scoring.fmtDateTime(e.createdAt)}</td>
-            </tr>`;
-          }).join('') : '<tr><td colspan="6"><div class="empty">Chưa có đánh giá</div></td></tr>'}
-        </tbody></table></div>
+        <div class="panel-body" style="padding-top:0">
+          ${traceBarHTML('rpoint', {
+            classes: nnClasses,
+            placeholder: 'Tìm lớp, LT, người chấm, ghi chú…',
+            resultText: `${evals.length}/${allEvals.length}`,
+          })}
+          <div class="table-wrap"><table class="trace-table">
+            <thead><tr><th>Thời gian</th><th>Lớp</th><th>Lớp trưởng</th><th>Điểm</th><th>Xếp loại</th><th>Người chấm</th><th>Ghi chú</th></tr></thead>
+            <tbody>${evals.length ? evals.map((e) => {
+              const g = Scoring.rpointLabel(e.total);
+              return `<tr>
+                <td class="trace-time">${Scoring.fmtDateTime(e.createdAt)}</td>
+                <td><strong>${classById(e.classId)?.code || '—'}</strong></td>
+                <td>${userName(e.ltId)}</td>
+                <td><strong>${e.total}</strong>/10</td>
+                <td><span class="badge ${g.cls}">${g.label}</span></td>
+                <td>${userName(e.evaluatorId)}</td>
+                <td><div class="trace-cell-note">${esc(e.note || '—')}</div></td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="7"><div class="empty">${allEvals.length ? 'Không có mục khớp bộ lọc' : 'Chưa có đánh giá'}</div></td></tr>`}
+          </tbody></table></div>
+        </div>
       </div>`;
 
+    bindTraceBar('rpoint', pageRPoint);
     const updateTotal = () => {
       const scores = {};
       $$('[data-rp]').forEach((el) => { scores[el.dataset.rp] = Number(el.value); });
@@ -2514,11 +2781,13 @@
     const watch = studentsInScope().filter((s) => s.status === 'WATCH');
     const risk = studentsInScope().filter((s) => s.status === 'AT_RISK');
     const list = [...risk, ...watch];
-    setPage('Sinh viên nguy cơ', `${risk.length} nguy cơ · ${watch.length} có vấn đề`);
+    const isManager = ['CVHT', 'QLDT'].includes(role());
+    setPage(isManager ? 'Quản lý SV nguy cơ' : 'Sinh viên nguy cơ', `${risk.length} nguy cơ · ${watch.length} có vấn đề`);
     $('#content').innerHTML = `
       <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
-        Ghi nhận trên <strong style="color:var(--ink)">SV đã có trong lớp</strong> (chi tiết lớp → Cập nhật, hoặc nút bên dưới).
-        Ghi chú lưu trên hồ sơ SV; CVHT có thể Tư vấn / Chuyển QLĐT.
+        ${isManager
+          ? 'Quản lý sinh viên đang theo dõi: cập nhật trạng thái, ghi biên bản tư vấn, chuyển QLĐT hoặc đưa về ổn định. Mọi thay đổi được lưu ở <strong style="color:var(--ink)">Lịch sử CSSV</strong>.'
+          : 'Ghi nhận trên <strong style="color:var(--ink)">SV đã có trong lớp</strong> (chi tiết lớp → Cập nhật, hoặc nút bên dưới). Ghi chú lưu trên hồ sơ SV.'}
       </div></div>
       <div class="kpi-grid kpi-grid-3" style="margin-bottom:14px">
         <div class="kpi danger"><div class="label">Nguy cơ</div><div class="value">${risk.length}</div></div>
@@ -2527,7 +2796,10 @@
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Danh sách theo dõi</h2>
-          ${canEditStudentStatus() ? '<button class="btn btn-primary btn-sm" id="btnAddRisk">+ Ghi nhận trạng thái</button>' : ''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${isManager ? '<button class="btn btn-ghost btn-sm" onclick="App.go(\'counseling\')">Lịch sử CSSV →</button>' : ''}
+            ${canEditStudentStatus() ? '<button class="btn btn-primary btn-sm" id="btnAddRisk">+ Ghi nhận trạng thái</button>' : ''}
+          </div>
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Sinh viên</th><th>Lớp</th><th>Trạng thái</th><th>Ghi chú</th><th>Mức</th><th></th></tr></thead>
@@ -2542,9 +2814,9 @@
                 : '—'}</td>
               <td style="display:flex;gap:5px;flex-wrap:wrap">
                 ${canEditStudentStatus() ? `<button class="btn btn-ghost btn-sm" data-status-sv="${s.id}">Cập nhật</button>` : ''}
-                ${['CVHT', 'QLDT'].includes(role()) ? `<button class="btn btn-ghost btn-sm" onclick="App.counsel('${s.id}')">Tư vấn</button>` : ''}
+                ${isManager ? `<button class="btn btn-ghost btn-sm" onclick="App.counsel('${s.id}')">Ghi tư vấn</button>` : ''}
                 ${role() === 'CVHT' || isAdmin() ? `<button class="btn btn-warn btn-sm" onclick="App.escalate('${s.id}')">Chuyển QLĐT</button>` : ''}
-                ${['CVHT', 'QLDT'].includes(role()) ? `<button class="btn btn-ok btn-sm" onclick="App.resolveRisk('${s.id}')">Ổn định lại</button>` : ''}
+                ${isManager ? `<button class="btn btn-ok btn-sm" onclick="App.resolveRisk('${s.id}')">Ổn định lại</button>` : ''}
               </td>
             </tr>`).join('') : '<tr><td colspan="6"><div class="empty">Chưa có SV nguy cơ / có vấn đề — bấm + Ghi nhận trạng thái</div></td></tr>'}
           </tbody>
@@ -2566,10 +2838,22 @@
     const s = allStudents().find((x) => x.id === studentId);
     const note = prompt(`Biên bản tư vấn — ${s?.name}:`, 'Đã liên hệ, thống nhất kế hoạch cải thiện.');
     if (note == null) return;
+    const text = note.trim();
+    if (!text) return toast('Nhập nội dung tư vấn', 'err');
+    const now = new Date().toISOString();
     Store.update((d) => {
-      d.atRiskNotes.unshift({ id: Store.uid('cn'), studentId, cvhtId: Store.realId(user), note, status: 'IN_PROGRESS', createdAt: new Date().toISOString() });
+      d.atRiskNotes.unshift({
+        id: Store.uid('cn'), studentId, cvhtId: Store.realId(user),
+        note: text, status: 'IN_PROGRESS', createdAt: now,
+      });
+      d.auditLog.unshift({
+        id: Store.uid('al'), actorId: user.id, actorName: user.name,
+        action: 'COUNSEL_NOTE', entity: 'Student', entityId: studentId,
+        beforeJson: '', afterJson: text, at: now,
+      });
     });
-    toast('Đã lưu biên bản'); navigate('counseling');
+    toast('Đã lưu biên bản tư vấn');
+    navigate('counseling');
   };
 
   App.escalate = (studentId) => {
@@ -2577,13 +2861,21 @@
     const s = allStudents().find((x) => x.id === studentId);
     const reason = prompt('Lý do chuyển QLĐT:', 'Không liên hệ được sau 48h');
     if (reason == null) return;
+    const text = reason.trim();
+    if (!text) return toast('Nhập lý do chuyển', 'err');
+    const now = new Date().toISOString();
     Store.update((d) => {
       d.escalations.unshift({
         id: Store.uid('e'), studentId, classId: s.classId, cvhtId: Store.realId(user),
-        reason, status: 'OPEN', createdAt: new Date().toISOString(),
+        reason: text, status: 'OPEN', createdAt: now, notes: [],
+      });
+      d.auditLog.unshift({
+        id: Store.uid('al'), actorId: user.id, actorName: user.name,
+        action: 'ESCALATE', entity: 'Student', entityId: studentId,
+        beforeJson: s?.status || '', afterJson: text, at: now,
       });
     });
-    notify(['u_admin'], 'Case chuyển QLĐT mới', `${user.name}: ${s.name} — ${reason}`);
+    notify(['u_admin'], 'Case chuyển QLĐT mới', `${user.name}: ${s.name} — ${text}`);
     toast('Đã chuyển QLĐT'); navigate('escalations');
   };
 
@@ -2596,18 +2888,78 @@
 
   function pageCounseling() {
     if (!['CVHT', 'QLDT'].includes(role())) return denyAccess();
-    const notes = db().atRiskNotes.filter((n) => isAdmin() || n.cvhtId === user.id || n.cvhtId === real());
-    setPage('Tư vấn CSSV', 'Theo dõi sau khi nhận báo cáo / vào lớp');
-    $('#content').innerHTML = `<div class="panel"><div class="panel-body"><div class="timeline">
-      ${notes.length ? notes.map((n) => {
-        const s = allStudents().find((x) => x.id === n.studentId);
-        return `<div class="timeline-item">
-          <div class="time">${Scoring.fmtDateTime(n.createdAt)} · ${userName(n.cvhtId)}</div>
-          <strong>${s?.name || n.studentId}</strong> — ${classById(s?.classId)?.code || ''}
-          <p style="color:var(--muted);margin-top:4px;font-size:.875rem">${esc(n.note)}</p>
-        </div>`;
-      }).join('') : '<div class="empty">Chưa có biên bản</div>'}
-    </div></div></div>`;
+    const all = buildCssvHistory();
+    const t = getTrace('cssv');
+    const scopeClasses = classesForUser();
+    const kindMeta = {
+      status: { label: 'Trạng thái', badge: 'badge-brand' },
+      counsel: { label: 'Tư vấn', badge: 'badge-ok' },
+      escalate: { label: 'Chuyển QLĐT', badge: 'badge-warn' },
+    };
+    const filtered = all.filter((e) => {
+      if (t.kind && t.kind !== 'all' && e.kind !== t.kind) return false;
+      const s = allStudents().find((x) => x.id === e.studentId);
+      const cls = classById(e.classId || s?.classId);
+      return passTrace(t, {
+        at: e.at,
+        classId: e.classId || s?.classId || '',
+        searchText: [
+          s?.name, s?.studentCode, cls?.code, e.note, e.actorName,
+          kindMeta[e.kind]?.label, e.fromCode, e.toCode,
+        ].join(' '),
+      });
+    });
+
+    setPage('Lịch sử CSSV', 'Truy vết theo tên · lớp · ngày · loại sự kiện');
+    $('#content').innerHTML = `
+      ${traceBarHTML('cssv', {
+        classes: scopeClasses,
+        kinds: [
+          ['all', 'Tất cả loại'],
+          ['status', 'Đổi trạng thái'],
+          ['counsel', 'Tư vấn'],
+          ['escalate', 'Chuyển QLĐT'],
+        ],
+        placeholder: 'Tìm SV, mã SV, lớp, người ghi, nội dung…',
+        resultText: `${filtered.length}/${all.length} mục`,
+        extra: '<button type="button" class="btn btn-ghost btn-sm" onclick="App.go(\'at-risk\')">← Quản lý SV</button>',
+      })}
+      <div class="panel"><div class="table-wrap"><table class="trace-table">
+        <thead><tr>
+          <th style="width:120px">Thời gian</th>
+          <th style="width:110px">Loại</th>
+          <th>Sinh viên</th>
+          <th style="width:130px">Lớp</th>
+          <th>Nội dung</th>
+          <th style="width:140px">Người ghi</th>
+        </tr></thead>
+        <tbody>${filtered.length ? filtered.map((e) => {
+          const s = allStudents().find((x) => x.id === e.studentId);
+          const cls = classById(e.classId || s?.classId);
+          const km = kindMeta[e.kind] || kindMeta.status;
+          let content = '';
+          if (e.kind === 'status') {
+            content = `<div class="hist-change">${statusBadgeByCode(e.fromCode || 'ACTIVE')}<span class="hist-arrow">→</span>${statusBadgeByCode(e.toCode || 'ACTIVE')}</div>
+              ${e.note ? `<div class="trace-cell-note">${esc(e.note)}</div>` : ''}`;
+          } else if (e.kind === 'escalate') {
+            content = `<div class="trace-cell-note">${esc(e.note)}</div>
+              ${e.status === 'OPEN' ? '<span class="badge badge-danger">Đang mở</span>' : '<span class="badge badge-ok">Đã đóng</span>'}`;
+          } else {
+            content = `<div class="trace-cell-note">${esc(e.note)}</div>`;
+          }
+          return `<tr>
+            <td class="trace-time">${Scoring.fmtDateTime(e.at)}</td>
+            <td><span class="badge ${km.badge}">${km.label}</span></td>
+            <td><strong>${esc(s?.name || e.studentId)}</strong>
+              <div class="trace-sub">${esc(s?.studentCode || '')}</div></td>
+            <td>${esc(cls?.code || '—')}</td>
+            <td>${content}</td>
+            <td class="trace-actor">${esc(e.actorName || '—')}</td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="6"><div class="empty">${all.length ? 'Không có mục khớp bộ lọc' : 'Chưa có lịch sử — cập nhật SV nguy cơ hoặc ghi tư vấn để bắt đầu truy vết.'}</div></td></tr>`}
+        </tbody>
+      </table></div></div>`;
+    bindTraceBar('cssv', pageCounseling);
   }
 
   function pageEscalations() {
@@ -2617,52 +2969,213 @@
       const ids = new Set(classesForUser().map((c) => c.id));
       list = list.filter((e) => ids.has(e.classId) || e.cvhtId === real());
     }
-    setPage('Case chuyển QLĐT', `${list.filter((e) => e.status === 'OPEN').length} đang mở`);
-    $('#content').innerHTML = `<div class="panel"><div class="table-wrap"><table>
-      <thead><tr><th>SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th><th>TT</th><th></th></tr></thead>
-      <tbody>${list.map((e) => {
-        const s = allStudents().find((x) => x.id === e.studentId);
-        return `<tr>
-          <td><strong>${s?.name || '—'}</strong></td>
-          <td>${classById(e.classId)?.code}</td>
-          <td>${userName(e.cvhtId)}</td>
-          <td style="font-size:13px">${esc(e.reason)}</td>
-          <td>${e.status === 'OPEN' ? '<span class="badge badge-danger">Mở</span>' : '<span class="badge badge-ok">Đóng</span>'}</td>
-          <td>${isAdmin() && e.status === 'OPEN' ? `<button class="btn btn-ok btn-sm" data-eid="${e.id}">Xử lý xong</button>` : ''}</td>
-        </tr>`;
-      }).join('') || '<tr><td colspan="6"><div class="empty">Không có case</div></td></tr>'}
-      </tbody></table></div></div>`;
-    $$('[data-eid]').forEach((btn) => {
-      btn.onclick = () => {
-        Store.update((d) => { const i = d.escalations.find((x) => x.id === btn.dataset.eid); if (i) i.status = 'CLOSED'; });
-        toast('Đã đóng'); pageEscalations();
-      };
+    const t = getTrace('esc');
+    const scopeClasses = classesForUser();
+    const filtered = list.filter((e) => {
+      if (t.status === 'OPEN' && e.status !== 'OPEN') return false;
+      if (t.status === 'CLOSED' && e.status !== 'CLOSED') return false;
+      const s = allStudents().find((x) => x.id === e.studentId);
+      const noteBlob = [
+        e.reason,
+        e.resolveNote,
+        ...(Array.isArray(e.notes) ? e.notes.map((n) => n.text) : []),
+      ].join(' ');
+      return passTrace(t, {
+        at: e.createdAt,
+        classId: e.classId,
+        searchText: [s?.name, s?.studentCode, classById(e.classId)?.code, userName(e.cvhtId), noteBlob].join(' '),
+      });
     });
+    const openN = list.filter((e) => e.status === 'OPEN').length;
+    setPage('Case chuyển QLĐT', `${openN} đang mở · Lọc theo tên / lớp / ngày`);
+
+    const canNote = ['CVHT', 'QLDT'].includes(role());
+    const canResolve = isAdmin();
+
+    const renderNotes = (e) => {
+      const notes = Array.isArray(e.notes) ? e.notes : [];
+      if (!notes.length && !e.resolveNote) {
+        return '<div class="esc-notes-empty">Chưa có ghi chú xử lý</div>';
+      }
+      const rows = notes.map((n) => `
+        <div class="esc-note ${n.kind === 'resolve' ? 'is-resolve' : ''}">
+          <div class="esc-note-meta">
+            <strong>${esc(n.byName || userName(n.by) || '—')}</strong>
+            <span>${Scoring.fmtDateTime(n.at)}</span>
+            ${n.kind === 'resolve' ? '<span class="badge badge-ok">Kết luận</span>' : ''}
+          </div>
+          <p>${esc(n.text)}</p>
+        </div>`).join('');
+      const legacy = e.resolveNote && !notes.some((n) => n.kind === 'resolve')
+        ? `<div class="esc-note is-resolve">
+            <div class="esc-note-meta"><strong>${esc(e.resolvedByName || 'QLĐT')}</strong>
+              <span>${e.resolvedAt ? Scoring.fmtDateTime(e.resolvedAt) : ''}</span>
+              <span class="badge badge-ok">Kết luận</span></div>
+            <p>${esc(e.resolveNote)}</p>
+          </div>`
+        : '';
+      return `<div class="esc-notes">${rows}${legacy}</div>`;
+    };
+
+    $('#content').innerHTML = `
+      <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
+        Mỗi case cần <strong style="color:var(--ink)">ghi chú quá trình xử lý</strong>.
+        QLĐT đóng case bằng <strong style="color:var(--ink)">Xử lý xong</strong> kèm nội dung kết luận.
+      </div></div>
+      ${traceBarHTML('esc', {
+        classes: scopeClasses,
+        statuses: [
+          ['', 'Tất cả trạng thái'],
+          ['OPEN', 'Đang mở'],
+          ['CLOSED', 'Đã đóng'],
+        ],
+        placeholder: 'Tìm SV, lớp, CVHT, lý do, ghi chú…',
+        resultText: `${filtered.length}/${list.length} case`,
+      })}
+      <div class="esc-list">
+        ${filtered.length ? filtered.map((e) => {
+          const s = allStudents().find((x) => x.id === e.studentId);
+          const open = e.status === 'OPEN';
+          return `<article class="esc-card ${open ? 'is-open' : 'is-closed'}">
+            <div class="esc-card-head">
+              <div>
+                <div class="esc-title">
+                  <strong>${esc(s?.name || '—')}</strong>
+                  ${open ? '<span class="badge badge-danger">Mở</span>' : '<span class="badge badge-ok">Đóng</span>'}
+                </div>
+                <div class="esc-sub">${esc(classById(e.classId)?.code || '—')} · CVHT ${esc(userName(e.cvhtId))} · ${Scoring.fmtDateTime(e.createdAt)}</div>
+              </div>
+              <div class="esc-actions">
+                ${canNote && open ? `<button class="btn btn-ghost btn-sm" data-esc-note="${e.id}">+ Ghi chú</button>` : ''}
+                ${canResolve && open ? `<button class="btn btn-ok btn-sm" data-esc-resolve="${e.id}">Xử lý xong</button>` : ''}
+                ${canNote && !open ? `<button class="btn btn-ghost btn-sm" data-esc-note="${e.id}">+ Ghi chú thêm</button>` : ''}
+              </div>
+            </div>
+            <div class="esc-reason"><span class="esc-label">Lý do chuyển</span><p>${esc(e.reason)}</p></div>
+            <div class="esc-thread">
+              <div class="esc-label">Ghi chú xử lý</div>
+              ${renderNotes(e)}
+            </div>
+          </article>`;
+        }).join('') : `<div class="panel"><div class="empty">${list.length ? 'Không có case khớp bộ lọc' : 'Không có case'}</div></div>`}
+      </div>`;
+
+    bindTraceBar('esc', pageEscalations);
+    $$('[data-esc-note]').forEach((btn) => {
+      btn.onclick = () => openEscalationNoteModal(btn.dataset.escNote, false);
+    });
+    $$('[data-esc-resolve]').forEach((btn) => {
+      btn.onclick = () => openEscalationNoteModal(btn.dataset.escResolve, true);
+    });
+  }
+
+  function openEscalationNoteModal(escalationId, resolve) {
+    if (!['CVHT', 'QLDT'].includes(role())) return denyAccess();
+    if (resolve && !isAdmin()) return denyAccess();
+    const e = db().escalations.find((x) => x.id === escalationId);
+    if (!e) return toast('Không tìm thấy case', 'err');
+    const s = allStudents().find((x) => x.id === e.studentId);
+    $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal">
+      <div class="modal-head">
+        <h3>${resolve ? 'Xử lý xong case' : 'Thêm ghi chú'}</h3>
+        <button class="btn btn-ghost btn-sm" id="mClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field"><label>Sinh viên</label>
+          <input type="text" value="${escAttr(s?.name || '—')} · ${escAttr(classById(e.classId)?.code || '')}" disabled /></div>
+        <div class="field"><label>Lý do chuyển</label>
+          <textarea rows="2" disabled>${esc(e.reason)}</textarea></div>
+        <div class="field"><label>${resolve ? 'Kết luận xử lý (bắt buộc)' : 'Nội dung ghi chú'}</label>
+          <textarea id="mEscNote" rows="4" placeholder="${resolve
+            ? 'VD: Đã liên hệ phụ huynh, SV quay lại học từ tuần sau…'
+            : 'VD: Đã gọi điện lần 2, hẹn gặp thứ 5…'}"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="mCancel">Hủy</button>
+        <button class="btn ${resolve ? 'btn-ok' : 'btn-primary'}" id="mSave">${resolve ? 'Đóng case' : 'Lưu ghi chú'}</button>
+      </div>
+    </div></div>`;
+    const close = () => { $('#modalRoot').innerHTML = ''; };
+    $('#mClose').onclick = $('#mCancel').onclick = close;
+    $('#modalOv').onclick = (ev) => { if (ev.target.id === 'modalOv') close(); };
+    $('#mSave').onclick = () => {
+      const text = ($('#mEscNote').value || '').trim();
+      if (!text) return toast(resolve ? 'Nhập kết luận xử lý' : 'Nhập nội dung ghi chú', 'err');
+      const now = new Date().toISOString();
+      Store.update((d) => {
+        const item = d.escalations.find((x) => x.id === escalationId);
+        if (!item) return;
+        if (!Array.isArray(item.notes)) item.notes = [];
+        item.notes.push({
+          id: Store.uid('en'),
+          text,
+          by: user.id,
+          byName: user.name,
+          at: now,
+          kind: resolve ? 'resolve' : 'note',
+        });
+        if (resolve) {
+          item.status = 'CLOSED';
+          item.resolveNote = text;
+          item.resolvedAt = now;
+          item.resolvedBy = user.id;
+          item.resolvedByName = user.name;
+        }
+        d.auditLog.unshift({
+          id: Store.uid('al'), actorId: user.id, actorName: user.name,
+          action: resolve ? 'ESCALATE_RESOLVE' : 'ESCALATE_NOTE',
+          entity: 'Student', entityId: item.studentId,
+          beforeJson: item.reason || '',
+          afterJson: text,
+          at: now,
+        });
+      });
+      if (resolve) {
+        const cvhtId = e.cvhtId;
+        if (cvhtId) notify([cvhtId], 'Case QLĐT đã đóng', `${s?.name || 'SV'}: ${text}`);
+        toast('Đã đóng case kèm kết luận');
+      } else {
+        toast('Đã thêm ghi chú');
+      }
+      close();
+      pageEscalations();
+    };
   }
 
   /* ========== ADMIN (simplified) ========== */
   function pagePeople() {
     if (!isAdmin()) return denyAccess();
     if (routeParams.id) return pagePersonDetail(routeParams.id);
-    const staff = allUsers().filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT');
-    setPage('Nhân sự & vai trò', `${staff.length} người`);
+    const q = (state.peopleQ || '').trim().toLowerCase();
+    const staff = allUsers()
+      .filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT')
+      .filter((u) => !q || [u.name, u.email, u.campus, ROLE_LABELS[userRole(u)], u.phone]
+        .join(' ').toLowerCase().includes(q))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'vi'));
+    const total = allUsers().filter((u) => !u.aliasOf && APP_ROLES.includes(userRole(u)) && userRole(u) !== 'QLDT').length;
+    setPage('Nhân sự & vai trò', `${staff.length}${q ? `/${total}` : ''} người`);
     $('#content').innerHTML = `
       <div class="admin-toolbar">
         <span style="font-size:13px;color:var(--muted)">Quản lý CVHT · Lớp trưởng · Bí thư</span>
-        <button class="btn btn-primary btn-sm" id="btnAddPerson" style="margin-left:auto">+ Thêm</button>
+        <input type="search" id="peopleQ" class="trace-q" style="flex:1;min-width:180px;max-width:280px;height:34px"
+          placeholder="Tìm tên, email, vai trò…" value="${escAttr(state.peopleQ || '')}" />
+        <button class="btn btn-primary btn-sm" id="btnAddPerson">+ Thêm</button>
       </div>
-      <div id="peopleList">${staff.map((u) => `
+      <div id="peopleList">${staff.length ? staff.map((u) => `
         <div class="person-card" onclick="App.go('people/${u.id}')">
           <div class="avatar">${u.initials}</div>
-          <div style="flex:1"><strong>${u.name}</strong>
-            <div style="font-size:12px;color:var(--muted)">${u.email} · ${u.campus}</div>
+          <div style="flex:1"><strong>${esc(u.name)}</strong>
+            <div style="font-size:12px;color:var(--muted)">${esc(u.email)} · ${esc(u.campus)}</div>
             <div class="role-chips"><span class="badge badge-brand">${ROLE_LABELS[userRole(u)]}</span></div>
           </div>
           <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
             <button class="btn btn-ghost btn-sm" data-edit-user="${u.id}">Sửa</button>
             <button class="btn btn-primary btn-sm" data-assign-user="${u.id}">Gán lớp</button>
           </div>
-        </div>`).join('')}</div>`;
+        </div>`).join('') : `<div class="empty panel" style="padding:28px">${q ? 'Không tìm thấy nhân sự khớp' : 'Chưa có nhân sự'}</div>`}</div>`;
+    const pq = $('#peopleQ');
+    if (pq) pq.oninput = () => { state.peopleQ = pq.value; pagePeople(); };
     $('#btnAddPerson').onclick = openCreateUserModal;
     $$('[data-edit-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openEditUserModal(b.dataset.editUser); }; });
     $$('[data-assign-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openAssignPersonModal(b.dataset.assignUser); }; });
@@ -3218,47 +3731,89 @@
 
   function pageAudit() {
     if (!isAdmin()) return denyAccess();
-    const logs = db().auditLog;
-    const ah = db().assignmentHistory;
-    setPage('Nhật ký thay đổi', `${logs.length} sự kiện`);
+    const tab = state.auditTab || 'a';
+    const t = getTrace('audit');
+    const logs = db().auditLog || [];
+    const ah = db().assignmentHistory || [];
+    const scopeClasses = allClasses();
+
+    const filteredLogs = logs.filter((l) => {
+      const s = l.entity === 'Student' ? allStudents().find((x) => x.id === l.entityId) : null;
+      const cls = l.entity === 'Class' ? classById(l.entityId) : (s ? classById(s.classId) : null);
+      return passTrace(t, {
+        at: l.at,
+        classId: cls?.id || s?.classId || '',
+        searchText: [
+          l.actorName, auditActionLabel(l.action), auditEntityLabel(l.entity),
+          l.entityId, formatAuditSnippet(l.beforeJson), formatAuditSnippet(l.afterJson),
+          s?.name, cls?.code,
+        ].join(' '),
+      });
+    });
+
+    const filteredAh = ah.filter((h) => passTrace(t, {
+      at: h.at,
+      classId: h.classId,
+      searchText: [
+        classById(h.classId)?.code,
+        ASSIGN_ROLE_LABELS[h.role],
+        h.fromUserName, h.toUserName, h.reason,
+      ].join(' '),
+    }));
+
+    setPage('Nhật ký thay đổi', 'Truy vết theo nội dung · lớp · ngày');
     $('#content').innerHTML = `
-      <div class="tabs">
-        <button class="tab active" data-tab="a">Hệ thống</button>
-        <button class="tab" data-tab="b">Phân công</button>
+      <div class="tabs" id="auditTabs">
+        <button class="tab ${tab === 'a' ? 'active' : ''}" data-tab="a">Hệ thống (${filteredLogs.length}/${logs.length})</button>
+        <button class="tab ${tab === 'b' ? 'active' : ''}" data-tab="b">Phân công (${filteredAh.length}/${ah.length})</button>
       </div>
-      <div id="auditBody"></div>`;
-    const show = (tab) => {
-      $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
-      if (tab === 'a') {
-        $('#auditBody').innerHTML = `<div class="panel">${logs.map((l) => `
-          <div class="audit-card">
-            <div class="audit-card-head">
-              <span class="badge badge-brand">${esc(auditActionLabel(l.action))}</span>
-              <span class="badge badge-muted">${esc(auditEntityLabel(l.entity))}</span>
-              <span class="meta">${esc(l.actorName)} · ${Scoring.fmtDateTime(l.at)}</span>
-            </div>
-            <div class="audit-diff">
-              <div class="audit-side from"><div class="side-label">Trước</div><div class="audit-plain">${esc(formatAuditSnippet(l.beforeJson))}</div></div>
-              <div class="audit-arrow">→</div>
-              <div class="audit-side to"><div class="side-label">Sau</div><div class="audit-plain">${esc(formatAuditSnippet(l.afterJson))}</div></div>
-            </div>
-          </div>`).join('') || '<div class="empty">Trống</div>'}</div>`;
-      } else {
-        $('#auditBody').innerHTML = `<div class="panel"><div class="panel-body"><div class="timeline">
-          ${ah.map((h) => `<div class="timeline-item">
-            <div class="time">${Scoring.fmtDateTime(h.at)} · ${classById(h.classId)?.code} · ${ASSIGN_ROLE_LABELS[h.role]}</div>
-            <div class="audit-diff">
-              <div class="audit-side from"><div class="side-label">Trước</div><div class="audit-plain">${esc(h.fromUserName)}</div></div>
-              <div class="audit-arrow">→</div>
-              <div class="audit-side to"><div class="side-label">Sau</div><div class="audit-plain">${esc(h.toUserName)}</div></div>
-            </div>
-            <div class="audit-reason">${esc(h.reason || '')}</div>
-          </div>`).join('') || '<div class="empty">Trống</div>'}
-        </div></div></div>`;
-      }
-    };
-    $$('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.tab)));
-    show('a');
+      ${traceBarHTML('audit', {
+        classes: scopeClasses,
+        placeholder: 'Tìm người, hành động, lớp, nội dung trước/sau…',
+        resultText: tab === 'a' ? `${filteredLogs.length} sự kiện` : `${filteredAh.length} phân công`,
+      })}
+      <div id="auditBody">${tab === 'a' ? `
+        <div class="panel"><div class="table-wrap"><table class="trace-table">
+          <thead><tr><th>Thời gian</th><th>Hành động</th><th>Đối tượng</th><th>Người</th><th>Trước → Sau</th></tr></thead>
+          <tbody>${filteredLogs.length ? filteredLogs.map((l) => {
+            const s = l.entity === 'Student' ? allStudents().find((x) => x.id === l.entityId) : null;
+            const who = s?.name || (l.entity === 'Class' ? classById(l.entityId)?.code : l.entityId) || '—';
+            return `<tr>
+              <td class="trace-time">${Scoring.fmtDateTime(l.at)}</td>
+              <td><span class="badge badge-brand">${esc(auditActionLabel(l.action))}</span></td>
+              <td><span class="badge badge-muted">${esc(auditEntityLabel(l.entity))}</span>
+                <div class="trace-sub">${esc(who)}</div></td>
+              <td>${esc(l.actorName || '—')}</td>
+              <td>
+                <div class="trace-diff-inline">
+                  <span class="from">${esc(formatAuditSnippet(l.beforeJson))}</span>
+                  <span class="hist-arrow">→</span>
+                  <span class="to">${esc(formatAuditSnippet(l.afterJson))}</span>
+                </div>
+              </td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="5"><div class="empty">${logs.length ? 'Không có sự kiện khớp bộ lọc' : 'Trống'}</div></td></tr>`}
+          </tbody></table></div></div>` : `
+        <div class="panel"><div class="table-wrap"><table class="trace-table">
+          <thead><tr><th>Thời gian</th><th>Lớp</th><th>Vai trò</th><th>Trước</th><th>Sau</th><th>Lý do</th></tr></thead>
+          <tbody>${filteredAh.length ? filteredAh.map((h) => `<tr>
+            <td class="trace-time">${Scoring.fmtDateTime(h.at)}</td>
+            <td><strong>${esc(classById(h.classId)?.code || '—')}</strong></td>
+            <td>${esc(ASSIGN_ROLE_LABELS[h.role] || h.role)}</td>
+            <td>${esc(h.fromUserName || '—')}</td>
+            <td>${esc(h.toUserName || '—')}</td>
+            <td><div class="trace-cell-note">${esc(h.reason || '—')}</div></td>
+          </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${ah.length ? 'Không có mục khớp bộ lọc' : 'Trống'}</div></td></tr>`}
+          </tbody></table></div></div>`}
+      </div>`;
+
+    $$('#auditTabs .tab').forEach((btn) => {
+      btn.onclick = () => {
+        state.auditTab = btn.dataset.tab;
+        pageAudit();
+      };
+    });
+    bindTraceBar('audit', pageAudit);
   }
 
   function auditActionLabel(action) {
@@ -3271,6 +3826,10 @@
       ASSIGNMENT_CHANGE: 'Đổi phân công',
       CLASS_SUBJECT: 'Đổi môn học lớp',
       STUDENT_STATUS: 'Cập nhật trạng thái SV',
+      COUNSEL_NOTE: 'Biên bản tư vấn',
+      ESCALATE: 'Chuyển QLĐT',
+      ESCALATE_NOTE: 'Ghi chú case QLĐT',
+      ESCALATE_RESOLVE: 'Đóng case QLĐT',
       CURRICULUM_CREATE: 'Tạo khóa / ngành',
       CURRICULUM_UPDATE: 'Sửa khóa / ngành',
       SEMESTER_CREATE: 'Thêm học kỳ',
@@ -3344,22 +3903,75 @@
 
   function pageSheets() {
     if (!isAdmin()) return denyAccess();
-    setPage('Google Sheets', APP_CONFIG.mode);
+    const on = SheetsAPI.enabled();
+    const tabs = (SheetsAPI.SHEET_NAMES || []).join(', ');
+    setPage('Google Sheets', on ? 'Đang dùng Sheets (chia sẻ qua Web App)' : 'Đang dùng localStorage trên máy này');
     $('#content').innerHTML = `
-      <div class="panel"><div class="panel-body" style="line-height:1.7;font-size:.9rem;color:var(--muted)">
-        <p>Xuất CSV hoặc cấu hình Apps Script trong <code>js/config.js</code> + <code>sheets/Code.gs.txt</code>.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-          <button class="btn btn-ghost btn-sm" data-csv="classes">Xuất Classes</button>
-          <button class="btn btn-ghost btn-sm" data-csv="users">Xuất Users</button>
-          <button class="btn btn-ghost btn-sm" data-csv="reports">Xuất Reports</button>
-          <button class="btn btn-ghost btn-sm" data-csv="auditLog">Xuất AuditLog</button>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-body" style="line-height:1.75;font-size:.9rem;color:var(--muted)">
+          <p><strong style="color:var(--ink)">Kiến trúc:</strong> GitHub Pages (static) + Google Apps Script Web App (API) + Google Spreadsheet (DB).</p>
+          <ol style="margin:10px 0 0 18px">
+            <li>Tạo Spreadsheet mới → Extensions → Apps Script → dán <code>sheets/Code.gs.txt</code> → Save.</li>
+            <li>Trong Apps Script: chọn hàm <code>setupSheets</code> → Run (cấp quyền) → tạo đủ tab.</li>
+            <li>Deploy → New deployment → Type <strong>Web app</strong> → Execute as <em>Me</em> · Who has access <em>Anyone</em> → Deploy → copy URL.</li>
+            <li>Sửa <code>js/config.js</code>: <code>mode: 'sheets'</code>, <code>sheetsWebAppUrl: 'URL…'</code> → commit &amp; push GitHub.</li>
+            <li>Đăng nhập QLĐT → trang này → <strong>Đẩy lên Sheets</strong> (seed lần đầu) · sau đó mọi máy <strong>Kéo từ Sheets</strong> / app tự kéo khi mở.</li>
+          </ol>
+          <p style="margin-top:12px">Tabs: <code style="font-size:11.5px">${esc(tabs)}</code></p>
+          <p style="margin-top:8px">Trạng thái: <span class="badge ${on ? 'badge-ok' : 'badge-warn'}">${on ? 'sheets' : 'local'}</span>
+            ${on ? '' : ' — sửa config.js rồi reload để bật đồng bộ.'}</p>
         </div>
-      </div></div>`;
+      </div>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-head"><h2>Đồng bộ</h2></div>
+        <div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" id="btnPullSheets" ${on ? '' : 'disabled'}>↓ Kéo từ Sheets</button>
+          <button class="btn btn-ok btn-sm" id="btnPushSheets" ${on ? '' : 'disabled'}>↑ Đẩy lên Sheets</button>
+          ${!on ? '<span style="font-size:12.5px;color:var(--muted);align-self:center">Bật mode sheets trong config.js để dùng 2 nút này</span>' : ''}
+        </div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2>Xuất CSV (sao lưu tay)</h2></div>
+        <div class="panel-body">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" data-csv="classes">Xuất Classes</button>
+            <button class="btn btn-ghost btn-sm" data-csv="users">Xuất Users</button>
+            <button class="btn btn-ghost btn-sm" data-csv="reports">Xuất Reports</button>
+            <button class="btn btn-ghost btn-sm" data-csv="auditLog">Xuất AuditLog</button>
+          </div>
+        </div>
+      </div>`;
+    const pull = $('#btnPullSheets');
+    if (pull) {
+      pull.onclick = async () => {
+        pull.disabled = true;
+        try {
+          await Store.pullFromSheets();
+          toast('Đã kéo dữ liệu từ Google Sheets');
+          pageSheets();
+        } catch (err) {
+          toast(err.message || 'Lỗi kéo Sheets', 'err');
+          pull.disabled = false;
+        }
+      };
+    }
+    const push = $('#btnPushSheets');
+    if (push) {
+      push.onclick = async () => {
+        push.disabled = true;
+        try {
+          const r = await Store.pushAllToSheets();
+          toast(`Đã đẩy ${r.sheets} tab lên Google Sheets`);
+        } catch (err) {
+          toast(err.message || 'Lỗi đẩy Sheets', 'err');
+        }
+        push.disabled = false;
+      };
+    }
     $$('[data-csv]').forEach((btn) => {
       btn.onclick = () => {
         const map = {
-          classes: { cols: ['id', 'code', 'campusId', 'cvhtId', 'ltId', 'btId'], rows: allClasses() },
-          users: { cols: ['id', 'email', 'name', 'primaryRole', 'campus'], rows: allUsers() },
+          classes: { cols: SheetsAPI.SCHEMA.Classes, rows: allClasses() },
+          users: { cols: SheetsAPI.SCHEMA.Users, rows: allUsers() },
           reports: { cols: ['id', 'classId', 'reporterId', 'reportKind', 'status', 'totalScore', 'createdAt'], rows: db().reports },
           auditLog: { cols: SheetsAPI.SCHEMA.AuditLog, rows: db().auditLog },
         };
@@ -3557,5 +4169,15 @@
     $('#sidebarBackdrop').classList.remove('show');
   };
   window.addEventListener('hashchange', render);
-  render();
+
+  (async () => {
+    if (typeof SheetsAPI !== 'undefined' && SheetsAPI.enabled()) {
+      try {
+        await Store.pullFromSheets();
+      } catch (err) {
+        console.warn('Sheets pull on boot failed', err);
+      }
+    }
+    render();
+  })();
 })();
