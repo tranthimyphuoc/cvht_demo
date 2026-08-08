@@ -2,6 +2,25 @@
 const Store = {
   KEY: 'cvht_hub_v17',
 
+  /* ── Sheets cache: tránh gọi API liên tục mỗi lần load trang ── */
+  SHEETS_CACHE_TS_KEY: 'cvht_sheets_ts',
+  SHEETS_CACHE_TTL: 10 * 60 * 1000, // 10 phút
+
+  isSheetsCacheFresh() {
+    try {
+      const ts = Number(localStorage.getItem(this.SHEETS_CACHE_TS_KEY) || '0');
+      return ts > 0 && (Date.now() - ts) < this.SHEETS_CACHE_TTL;
+    } catch { return false; }
+  },
+
+  markSheetsCacheFresh() {
+    try { localStorage.setItem(this.SHEETS_CACHE_TS_KEY, String(Date.now())); } catch { /* ignore */ }
+  },
+
+  invalidateSheetsCache() {
+    try { localStorage.removeItem(this.SHEETS_CACHE_TS_KEY); } catch { /* ignore */ }
+  },
+
   nameToUserId(name, users) {
     if (!name) return null;
     const n = name.trim().toLowerCase();
@@ -1090,9 +1109,14 @@ const Store = {
     });
   },
 
-  async pullFromSheets() {
+  async pullFromSheets(opts = {}) {
     if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
       throw new Error('Chưa bật mode sheets hoặc thiếu URL Web App trong js/config.js');
+    }
+    // Bỏ qua nếu cache còn mới (dưới 10 phút) — trừ khi force=true
+    if (!opts.force && this.isSheetsCacheFresh()) {
+      console.info('[Store] Sheets cache còn mới, bỏ qua fetch.');
+      return this.get();
     }
     const remote = await SheetsAPI.pullAll();
     this.update((d) => {
@@ -1137,6 +1161,7 @@ const Store = {
         d.lateCounts = lc;
       }
     });
+    this.markSheetsCacheFresh();
     return this.get();
   },
 
@@ -1148,6 +1173,7 @@ const Store = {
     for (const name of SheetsAPI.SHEET_NAMES) {
       await SheetsAPI.pushEntity(name, snap[name] || []);
     }
+    this.markSheetsCacheFresh();
     return { ok: true, sheets: SheetsAPI.SHEET_NAMES.length };
   },
 };

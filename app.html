@@ -8,6 +8,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23C8102E' width='100' height='100' rx='20'/><text x='50' y='64' text-anchor='middle' fill='white' font-size='42' font-family='sans-serif' font-weight='700'>RE</text></svg>" />
+  <!-- Auth guard: chạy trước mọi script, tránh nháy trang -->
+  <script>
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('cvht_session'));
+        if (!s || !s.id) { location.replace('index.html'); }
+      } catch (e) { location.replace('index.html'); }
+    })();
+  </script>
 </head>
 <body>
   <div class="boot-loader" id="bootLoader" aria-live="polite" aria-busy="true">

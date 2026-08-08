@@ -1,4 +1,4 @@
-/* CVHT Hub — BT/LT/LT NN → CVHT → QLĐT */
+﻿/* CVHT Hub — BT/LT/LT NN → CVHT → QLĐT */
 (() => {
   const user = Store.getSession();
   if (!user) { location.href = 'index.html'; return; }
@@ -56,7 +56,7 @@
   }
 
   function editDraftReport(id) {
-    const r = db().reports.find((x) => x.id === id);
+    const r = (db().reports || []).find((x) => x.id === id);
     if (!canEditDraft(r)) return toast('Không thể sửa báo cáo này', 'err');
     const go = editRouteForKind(r.reportKind);
     if (!go) return toast('Loại báo cáo không hỗ trợ sửa', 'err');
@@ -68,7 +68,7 @@
   }
 
   function submitDraftNow(id) {
-    const r = db().reports.find((x) => x.id === id);
+    const r = (db().reports || []).find((x) => x.id === id);
     if (!canEditDraft(r)) return toast('Không thể gửi báo cáo này', 'err');
     const cls = classById(r.classId);
     const status = submitStatusForKind(r.reportKind);
@@ -107,6 +107,17 @@
     const ids = [cvhtId].filter(Boolean);
     if (cvhtId === 'u_nq' || cvhtId === 'u_pvh') ids.push('u_cvht_demo');
     return ids;
+  }
+
+  /* Thông báo khép kín: gửi cho tất cả stakeholders của lớp (CVHT + LT + BT),
+     trừ những người trong mảng excludeIds (ví dụ: tác nhân vừa thao tác). */
+  function classStakeholderIds(cls, excludeIds = []) {
+    const raw = [
+      ...cvhtNotifyIds(cls?.cvhtId),
+      cls?.ltId,
+      cls?.btId,
+    ];
+    return [...new Set(raw.filter((id) => id && !excludeIds.includes(id)))];
   }
 
   function db() { return Store.get(); }
@@ -295,6 +306,29 @@
     INACTIVE: { label: 'Tạm ngưng', cls: 'badge-muted' },
   };
 
+  /* Loại buổi vào lớp — CVHT ghi nhận mục đích */
+  const VISIT_TYPES = [
+    { value: 'DINH_KY', label: 'Sinh hoạt định kỳ (1 lần/tuần)' },
+    { value: 'XU_LY_NGUY_CO', label: 'Xử lý case SV nguy cơ' },
+    { value: 'TRAO_DOI_CHUONG_TRINH', label: 'Trao đổi chương trình học' },
+    { value: 'KIEM_TRA_SY_SO', label: 'Kiểm tra sĩ số / chuyên cần' },
+    { value: 'HO_TRO_KHAC', label: 'Hỗ trợ khác' },
+  ];
+
+  /* Danh mục nguyên nhân SV nguy cơ — chuẩn hóa cho báo cáo */
+  const RISK_CATEGORIES = [
+    'Nghỉ học nhiều buổi (không lý do)',
+    'Đi làm thêm / áp lực kinh tế',
+    'Trượt nhiều môn / không hiểu bài',
+    'Mất liên lạc (không phản hồi)',
+    'Khó khăn tài chính',
+    'Vấn đề gia đình / sức khỏe',
+    'Có nguy cơ bảo lưu / thôi học',
+    'Bị đình chỉ / vi phạm quy chế',
+    'Nghỉ dài hạn không xin phép',
+    'Khác (xem ghi chú chi tiết)',
+  ];
+
   function studentStatusBadge(s) {
     const meta = STUDENT_STATUS[s?.status] || STUDENT_STATUS.ACTIVE;
     return `<span class="badge ${meta.cls}">${meta.label}</span>`;
@@ -408,7 +442,7 @@
       });
     });
 
-    db().escalations.forEach((e) => {
+    (db().escalations || []).forEach((e) => {
       if (!inScope(e.studentId)) return;
       const latest = Array.isArray(e.notes) && e.notes.length
         ? e.notes[e.notes.length - 1].text
@@ -460,9 +494,15 @@
             <option value="HIGH" ${s.riskLevel === 'HIGH' ? 'selected' : ''}>Cao</option>
           </select>
         </div>
-        <div class="field"><label>Ghi chú / lý do</label>
-          <textarea id="mNote" rows="3" placeholder="VD: Nghỉ 2 buổi liên tiếp, chưa nộp BTVN…">${esc(studentNoteText(s) && studentNoteText(s) !== s.enrollStatus ? studentNoteText(s) : '')}</textarea>
-          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Ghi chú này hiện ở cột Ghi chú trên danh sách lớp và trang SV nguy cơ.</div>
+        <div class="field" id="mCategoryWrap"><label>Nguyên nhân chính <span style="color:var(--brand)">*</span></label>
+          <select id="mCategory">
+            <option value="">— Chọn nguyên nhân —</option>
+            ${RISK_CATEGORIES.map((c) => `<option value="${escAttr(c)}" ${studentNoteText(s) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Ghi chú chi tiết (không bắt buộc)</label>
+          <textarea id="mNote" rows="2" placeholder="Thêm chi tiết cụ thể nếu cần…">${esc(RISK_CATEGORIES.includes(studentNoteText(s)) ? '' : (studentNoteText(s) !== s.enrollStatus ? studentNoteText(s) : ''))}</textarea>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Ghi chú hiển thị ở danh sách lớp, trang SV nguy cơ và báo cáo.</div>
         </div>
       </div>
       <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button><button class="btn btn-primary" id="mSave">Lưu</button></div>
@@ -472,16 +512,22 @@
     $('#modalOv').onclick = (e) => { if (e.target.id === 'modalOv') close(); };
     const syncLevel = () => {
       const st = $('#mStatus').value;
-      $('#mLevelWrap').style.display = (st === 'AT_RISK' || st === 'WATCH') ? '' : 'none';
+      const isRisk = st === 'AT_RISK' || st === 'WATCH';
+      $('#mLevelWrap').style.display = isRisk ? '' : 'none';
+      const catWrap = $('#mCategoryWrap');
+      if (catWrap) catWrap.style.display = isRisk ? '' : 'none';
     };
     $('#mStatus').onchange = syncLevel;
     syncLevel();
     $('#mSave').onclick = () => {
       const status = $('#mStatus').value;
-      const note = ($('#mNote').value || '').trim();
-      if ((status === 'AT_RISK' || status === 'WATCH') && !note) {
-        return toast('Nhập ghi chú / lý do', 'err');
+      const category = ($('#mCategory')?.value || '').trim();
+      const detail = ($('#mNote').value || '').trim();
+      const isRisk = status === 'AT_RISK' || status === 'WATCH';
+      if (isRisk && !category) {
+        return toast('Chọn nguyên nhân chính', 'err');
       }
+      const note = isRisk ? (detail ? `${category} — ${detail}` : category) : detail;
       applyStudentStatus(studentId, {
         status,
         note,
@@ -687,7 +733,7 @@
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp phụ trách', icon: '▦' },
       { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'lt' },
-      { id: 'visits', label: 'Vào lớp / quan sát', icon: '◎' },
+      { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
       { id: 'report-cvht', label: 'BC Tổng hợp', icon: '✎' },
       { id: 'rpoint', label: 'R-Point NN', icon: '★' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
@@ -733,7 +779,7 @@
 
   function pendingForRole() {
     const ids = new Set(classesForUser().map((c) => c.id));
-    const reports = db().reports.filter((r) => ids.has(r.classId) || isAdmin());
+    const reports = (db().reports || []).filter((r) => ids.has(r.classId) || isAdmin());
     if (role() === 'CVHT') {
       return reports.filter((r) =>
         ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind) && r.status === 'SENT_TO_CVHT'
@@ -744,7 +790,7 @@
   }
 
   function unreadCount() {
-    return db().notifications.filter((n) => (n.userId === user.id || n.userId === real()) && !n.read).length;
+    return (db().notifications || []).filter((n) => (n.userId === user.id || n.userId === real()) && !n.read).length;
   }
 
   function canAccessRoute(id) {
@@ -1031,7 +1077,7 @@
     const cls = classById(classId);
     const draft = state.reportDraft;
     const editing = state.editingReportId
-      ? db().reports.find((x) => x.id === state.editingReportId && x.status === 'DRAFT')
+      ? (db().reports || []).find((x) => x.id === state.editingReportId && x.status === 'DRAFT')
       : null;
     let semesterId = draft?.semesterId || editing?.semesterId || cls?.semester || '';
     const cur = cls ? Curriculum.forClass(cls.code, semesterId) : null;
@@ -1049,7 +1095,7 @@
   }
 
   function semesterScoreSummary(classId, semesterId, subjectCode, reportKind, reporterId) {
-    const reports = db().reports;
+    const reports = db().reports || [];
     const lookup = (id) => classById(id);
     const mine = Scoring.semesterAverage(reports, {
       classId, semesterId, subjectCode, reportKind, reporterId,
@@ -1198,45 +1244,615 @@
       return;
     }
 
-    $('#content').innerHTML = `
-      ${flowBanner()}
-      <div class="cta-hero">
-        <div><h2>${h.title}</h2><p>${h.sub}</p></div>
-        <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
-      </div>
-      <div class="kpi-grid">
-        <div class="kpi"><div class="label">Lớp phụ trách</div><div class="value">${classes.length}</div><div class="hint">Trong phạm vi của bạn</div></div>
-        <div class="kpi warn"><div class="label">Chờ xử lý</div><div class="value">${pending.length}</div><div class="hint">Chờ nhận báo cáo</div></div>
-        <div class="kpi danger"><div class="label">SV nguy cơ</div><div class="value">${atRisk.length}</div><div class="hint">Cần theo dõi</div></div>
-        <div class="kpi info"><div class="label">Thông báo chưa đọc</div><div class="value">${unreadCount()}</div><div class="hint">Trong hộp thư</div></div>
-      </div>
-      <div class="grid-2">
-        <div class="panel">
-          <div class="panel-head"><h2>Lớp của bạn</h2><button class="btn btn-ghost btn-sm" onclick="App.go('classes')">Tất cả</button></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Mã lớp</th><th>Môn</th><th>CVHT</th><th>LT</th><th>BT</th></tr></thead>
-            <tbody>${classes.slice(0, 6).map((c) => `
-              <tr style="cursor:pointer" onclick="App.go('classes/${c.id}')">
-                <td><strong>${c.code}</strong></td>
-                <td style="font-size:12.5px">${esc(subjectOf(c))}</td>
-                <td>${shortName(c.cvhtId)}</td>
-                <td>${c.ltId ? shortName(c.ltId) : '—'}</td>
-                <td>${c.btId ? shortName(c.btId) : '—'}</td>
-              </tr>`).join('') || '<tr><td colspan="5" class="empty">Chưa có lớp</td></tr>'}
-            </tbody>
-          </table></div>
+    // Tính KPI nâng cao cho CVHT và QLĐT
+    const allEsc = db().escalations || [];
+    const scopeCheck = (e) => isAdmin() || classes.some((c) => c.id === e.classId) || e.cvhtId === real();
+    const openEsc = allEsc.filter((e) => e.status === 'OPEN' && scopeCheck(e));
+    const closedEsc = allEsc.filter((e) => e.status === 'CLOSED' && scopeCheck(e));
+    const totalEsc = openEsc.length + closedEsc.length;
+    const resolveRate = totalEsc > 0 ? Math.round((closedEsc.length / totalEsc) * 100) : 0;
+
+    // Tỷ lệ SV quay lại ổn định (AT_RISK/WATCH → ACTIVE trong audit log, chỉ tính SV trong phạm vi)
+    const scopedStudentIds = new Set(studentsInScope().map((s) => s.id));
+    const returnedStudentIds = new Set();
+    (db().auditLog || []).forEach((l) => {
+      if (l.action !== 'STUDENT_STATUS') return;
+      if (!scopedStudentIds.has(l.entityId)) return;
+      const before = String(l.beforeJson || '');
+      const after = String(l.afterJson || '');
+      if ((before === 'AT_RISK' || before === 'WATCH') && after === 'ACTIVE') {
+        returnedStudentIds.add(l.entityId);
+      }
+    });
+    const returnedCount = returnedStudentIds.size;
+
+    // Thống kê vào lớp 2 tuần gần nhất (dùng cùng 1 trường date nhất quán)
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const visitDateOf = (v) => (v.visitDate || v.createdAt || '').slice(0, 10);
+    const recentVisitClassIds = new Set(
+      (db().visits || [])
+        .filter((v) => visitDateOf(v) >= twoWeeksAgo)
+        .filter((v) => isAdmin() || classes.some((c) => c.id === v.classId))
+        .map((v) => v.classId)
+    );
+    const visitCoverage = classes.length > 0 ? Math.round((recentVisitClassIds.size / classes.length) * 100) : 0;
+
+    // Campus split — dùng giá trị tường minh, không dùng phủ định
+    const hnClasses = classes.filter((c) => c.campusId === 'HN');
+    const hcmClasses = classes.filter((c) => c.campusId === 'HCM');
+
+    const riskHigh = atRisk.filter((s) => s.riskLevel === 'HIGH');
+    const riskMed = atRisk.filter((s) => s.riskLevel === 'MEDIUM' || (!s.riskLevel && s.status === 'WATCH'));
+    const riskLow = atRisk.filter((s) => s.riskLevel === 'LOW');
+
+    if (r === 'QLDT') {
+      const allStudentCount = studentsInScope().length;
+      const activeStudentCount = studentsInScope().filter((s) => s.status === 'ACTIVE' || !s.status).length;
+      const allSv = studentsInScope();
+
+      // ── Phân tích 4 nhóm đặc thù — chỉ dựa trên enrollStatus (không dùng note nguy cơ) ──
+      // Dùng Set để đảm bảo mỗi SV chỉ xuất hiện trong 1 nhóm (ưu tiên: thôi học > đình chỉ > bảo lưu > nghỉ DH)
+      const normalizeEnroll = (s) => (s.enrollStatus || '').toLowerCase().trim();
+      const ENROLL_THOI_HOC = ['thôi học', 'thôi hoc', 'rút lui', 'nghỉ học'];
+      const ENROLL_DINH_CHI = ['đình chỉ', 'dinh chi'];
+      const ENROLL_BAO_LUU = ['bảo lưu', 'bao luu', 'đang bảo lưu'];
+      const ENROLL_NGHI_DH = ['nghỉ dài hạn', 'nghi dai han', 'nghỉ dài'];
+
+      const matchEnroll = (s, keywords) => { const e = normalizeEnroll(s); return keywords.some((k) => e.includes(k)); };
+
+      // Phân loại theo thứ tự ưu tiên — mỗi SV chỉ vào 1 nhóm
+      const specialIds = new Set();
+      const thoiHocList = allSv.filter((s) => {
+        if (matchEnroll(s, ENROLL_THOI_HOC)) { specialIds.add(s.id); return true; }
+        return false;
+      });
+      const dinhChiList = allSv.filter((s) => {
+        if (specialIds.has(s.id)) return false;
+        if (matchEnroll(s, ENROLL_DINH_CHI)) { specialIds.add(s.id); return true; }
+        return false;
+      });
+      const baoLuuList = allSv.filter((s) => {
+        if (specialIds.has(s.id)) return false;
+        // Loại trừ trường hợp "bảo lưu quay lại học" — đây là người đã quay lại
+        const e = normalizeEnroll(s);
+        if (ENROLL_BAO_LUU.some((k) => e.includes(k)) && !e.includes('quay lại') && !e.includes('quay lai')) {
+          specialIds.add(s.id); return true;
+        }
+        return false;
+      });
+      const nghiDaiHanList = allSv.filter((s) => {
+        if (specialIds.has(s.id)) return false;
+        if (matchEnroll(s, ENROLL_NGHI_DH)) { specialIds.add(s.id); return true; }
+        return false;
+      });
+
+      // Tổng unique (dùng specialIds.size đã loại trùng)
+      const specialGroupTotal = specialIds.size;
+
+      // ── Tỷ lệ quay lại — dùng Set để tránh double-count ──
+      // cohort = SV từng nguy cơ (đã quay lại + còn nguy cơ hiện tại + diện đặc thù)
+      const cohortIds = new Set([
+        ...returnedStudentIds,
+        ...atRisk.map((s) => s.id),
+        ...specialIds,
+      ]);
+      const totalProcessed = cohortIds.size;
+      const returnRate = totalProcessed > 0 ? Math.round((returnedCount / totalProcessed) * 100) : 0;
+
+      // ── Thời gian xử lý trung bình — chỉ tính case có đủ timestamp ──
+      const timedClosedEsc = closedEsc.filter((e) => e.resolvedAt && e.createdAt);
+      const avgDays = timedClosedEsc.length > 0
+        ? Math.round(timedClosedEsc.reduce((sum, e) =>
+            sum + (new Date(e.resolvedAt) - new Date(e.createdAt)) / 86400000, 0) / timedClosedEsc.length)
+        : null;
+
+      // ── Phân loại nguyên nhân ──
+      const causeCounts = {};
+      atRisk.forEach((s) => {
+        const note = s.statusNote || s.riskReason || '';
+        const matched = RISK_CATEGORIES.find((c) => note === c || note.startsWith(c));
+        const key = matched || (note ? 'Khác (xem ghi chú)' : 'Chưa phân loại');
+        causeCounts[key] = (causeCounts[key] || 0) + 1;
+      });
+      const causeEntries = Object.entries(causeCounts).sort((a, b) => b[1] - a[1]);
+      const maxCause = causeEntries.length > 0 ? causeEntries[0][1] : 1;
+
+      // ── Phân bố nguy cơ theo môn học ──
+      const subjectRisk = {};
+      atRisk.forEach((s) => {
+        const cls = classById(s.classId);
+        const sub = cls?.subject || cls?.code || 'Không rõ';
+        subjectRisk[sub] = (subjectRisk[sub] || 0) + 1;
+      });
+      const subjectEntries = Object.entries(subjectRisk).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      const maxSubject = subjectEntries.length > 0 ? subjectEntries[0][1] : 1;
+
+      // ── Nhật ký hoạt động tuần này (thứ 2 → hiện tại, theo giờ địa phương) ──
+      const todayJs = new Date();
+      const monday = new Date(todayJs);
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      // Dùng local Y-M-D để tránh lệch múi giờ UTC+7
+      const pad = (n) => String(n).padStart(2, '0');
+      const weekStartStr = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+
+      const weekReports = (db().reports || []).filter((rpt) => (rpt.createdAt || '').slice(0, 10) >= weekStartStr);
+      const weekVisits = (db().visits || []).filter((v) => visitDateOf(v) >= weekStartStr);
+      const weekEscCreated = (db().escalations || []).filter((e) => (e.createdAt || '').slice(0, 10) >= weekStartStr);
+      const weekEscClosed = (db().escalations || []).filter((e) => e.resolvedAt && e.resolvedAt.slice(0, 10) >= weekStartStr);
+
+      const actItems = [
+        ...weekReports.map((rpt) => {
+          const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT tổng hợp' }[rpt.reportKind] || rpt.reportKind || '';
+          const statusText = { DRAFT: 'nháp', SENT_TO_CVHT: '→ CVHT', SEEN_BY_CVHT: 'CVHT đã đọc', SENT_TO_QLDT: '→ QLĐT', SEEN_BY_QLDT: 'QLĐT đã đọc' }[rpt.status] || rpt.status || '';
+          return { ts: rpt.createdAt || '', type: 'report', text: `BC ${kLabel} · ${shortName(rpt.reporterId)} · ${statusText}`, sub: classById(rpt.classId)?.code || '' };
+        }),
+        ...weekVisits.map((v) => {
+          const vtLabel = VISIT_TYPES.find((t) => t.value === v.visitType)?.label?.split('(')[0]?.trim() || 'Sinh hoạt định kỳ';
+          return { ts: v.createdAt || '', type: 'visit', text: `Vào lớp · ${shortName(v.cvhtId)} · ${vtLabel}`, sub: classById(v.classId)?.code || '' };
+        }),
+        ...weekEscCreated.map((e) => {
+          const sv = (db().students || []).find((x) => x.id === e.studentId);
+          return { ts: e.createdAt || '', type: 'esc', text: `Mở case SV nguy cơ · ${esc(sv?.name || 'SV')}`, sub: classById(e.classId)?.code || '' };
+        }),
+        ...weekEscClosed.map((e) => {
+          const sv = (db().students || []).find((x) => x.id === e.studentId);
+          return { ts: e.resolvedAt || '', type: 'ok', text: `Đóng case · ${esc(sv?.name || 'SV')} · ${(e.resolveNote || '').slice(0, 40)}${(e.resolveNote || '').length > 40 ? '…' : ''}`, sub: classById(e.classId)?.code || '' };
+        }),
+      ].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 20);
+
+      const sgInitials = (list) => list.slice(0, 3).map((s) => esc((s.name || '').split(' ').slice(-1)[0] || '?')).join(', ') + (list.length > 3 ? ` +${list.length - 3}` : '');
+
+      // ── Tóm tắt tình hình tuần theo từng lớp ──
+      const classSummaryItems = classes.map((cls) => {
+        const classAtRiskStudents = atRisk.filter((s) => s.classId === cls.id);
+        const classWeekReports = weekReports.filter((rpt) => rpt.classId === cls.id);
+        const classWeekVisits = weekVisits.filter((v) => v.classId === cls.id);
+        const classOpenEsc = openEsc.filter((e) => e.classId === cls.id);
+        const hasActivity = classAtRiskStudents.length > 0 || classWeekReports.length > 0 || classOpenEsc.length > 0 || classWeekVisits.length > 0;
+        if (!hasActivity) return null;
+        const riskNames = classAtRiskStudents.map((s) => {
+          const reason = s.statusNote || s.riskReason || '';
+          return `<strong>${esc(s.name)}</strong>${reason ? ` (${esc(reason.slice(0, 40))}${reason.length > 40 ? '…' : ''})` : ''}`;
+        }).join(', ');
+        const visitText = classWeekVisits.length > 0
+          ? `CVHT đã vào lớp ${classWeekVisits.length} lần tuần này.`
+          : 'CVHT <span style="color:var(--warn);font-weight:600">chưa vào lớp</span> tuần này.';
+        const reportText = classWeekReports.length > 0
+          ? `${classWeekReports.length} báo cáo đã được gửi.`
+          : 'Chưa có báo cáo tuần.';
+        const escText = classOpenEsc.length > 0
+          ? `<span style="color:var(--danger);font-weight:600">${classOpenEsc.length} case nguy cơ đang mở</span> chờ QLĐT xử lý.`
+          : '';
+        return { cls, riskNames, visitText, reportText, escText, riskCount: classAtRiskStudents.length, openCount: classOpenEsc.length };
+      }).filter(Boolean).sort((a, b) => b.openCount - a.openCount || b.riskCount - a.riskCount);
+
+      const weekSummaryHtml = classSummaryItems.length > 0
+        ? classSummaryItems.slice(0, 6).map((item) => `
+            <div class="week-summary-row" onclick="App.go('classes/${item.cls.id}')" style="cursor:pointer">
+              <div class="week-summary-class">
+                <span class="badge badge-muted">${esc(item.cls.campusId || '?')}</span>
+                <strong style="font-size:13px">${esc(item.cls.code)}</strong>
+                <span style="font-size:11.5px;color:var(--muted)">CVHT: ${shortName(item.cls.cvhtId)}</span>
+              </div>
+              <div class="week-summary-body">
+                ${item.riskCount > 0 ? `<p style="margin-bottom:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--danger);margin-right:5px;vertical-align:middle"></span>SV cần theo dõi: ${item.riskNames}</p>` : ''}
+                <p style="color:var(--muted);font-size:12px">${item.visitText} ${item.reportText} ${item.escText}</p>
+              </div>
+            </div>`).join('')
+        : `<div class="empty" style="padding:14px 0">Tất cả lớp đang ổn định — không có vấn đề nổi bật tuần này.</div>`;
+
+      $('#content').innerHTML = `
+        ${flowBanner()}
+        <div class="cta-hero">
+          <div><h2>${h.title}</h2><p>${h.sub}</p></div>
+          <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h2>Luồng của bạn</h2></div>
-          <div class="panel-body" style="font-size:.9rem;line-height:1.75;color:var(--muted)">
-            ${role() === 'BI_THU' ? '<p><strong style="color:var(--ink)">Bí thư</strong> phụ trách hoạt động, phong trào, truyền thông — gửi báo cáo thẳng <strong style="color:var(--ink)">CVHT</strong>.</p>' : ''}
-            ${role() === 'LOP_TRUONG' ? '<p><strong style="color:var(--ink)">Lớp trưởng CN</strong> tổng hợp tình hình lớp — gửi <strong style="color:var(--ink)">CVHT</strong> (song song với Bí thư).</p>' : ''}
-            ${role() === 'LOP_TRUONG_NN' ? '<p><strong style="color:var(--ink)">Lớp trưởng NN</strong> báo cáo tuần theo 5 tiêu chí (/10) — gửi CVHT; cuối học phần xét <strong style="color:var(--ink)">R-Point /10</strong>.</p>' : ''}
-            ${role() === 'CVHT' ? '<p><strong style="color:var(--ink)">CVHT</strong> nhận BC từ Bí thư + Lớp trưởng (CN/NN), vào lớp quan sát, tổng hợp — gửi <strong style="color:var(--ink)">QLĐT</strong>.</p>' : ''}
-            ${role() === 'QLDT' ? '<p><strong style="color:var(--ink)">QLĐT</strong> nhận BC tổng hợp từ CVHT và xem toàn bộ hệ thống (CN + Ngoại ngữ).</p>' : ''}
+
+        <div class="panel" style="margin-bottom:18px">
+          <div class="panel-head">
+            <h2>Tình hình tuần này · ${monday.toLocaleDateString('vi-VN')} — ${todayJs.toLocaleDateString('vi-VN')}</h2>
+            <span style="font-size:11.5px;color:var(--muted)">${classSummaryItems.length} lớp có vấn đề / ${classes.length} lớp tổng</span>
+          </div>
+          <div class="panel-body" style="padding:12px 18px">
+            ${weekSummaryHtml}
           </div>
         </div>
-      </div>`;
+
+        <div class="dashboard-section-label">Tổng quan quy mô</div>
+        <div class="kpi-grid kpi-grid-4">
+          <div class="kpi">
+            <div class="label">Tổng lớp phụ trách</div>
+            <div class="value">${classes.length}</div>
+            <div class="hint">HN: ${hnClasses.length} · HCM: ${hcmClasses.length}</div>
+          </div>
+          <div class="kpi info">
+            <div class="label">Tổng sinh viên</div>
+            <div class="value">${allStudentCount}</div>
+            <div class="hint">Đang học bình thường: ${activeStudentCount}</div>
+          </div>
+          <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
+            <div class="label">BC chờ xác nhận</div>
+            <div class="value">${pending.length}</div>
+            <div class="hint">Báo cáo tổng hợp từ CVHT</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Thông báo chưa đọc</div>
+            <div class="value">${unreadCount()}</div>
+            <div class="hint">Trong hộp thư của bạn</div>
+          </div>
+        </div>
+
+        <div class="dashboard-section-label">Chỉ số hiệu quả xử lý nguy cơ</div>
+        <div class="kpi-grid kpi-grid-4">
+          <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : 'danger'}">
+            <div class="label">Tỷ lệ SV quay lại học bình thường</div>
+            <div class="value">${returnRate}<small>%</small></div>
+            <div class="hint">${returnedCount} SV ổn định / ${totalProcessed} đã xử lý</div>
+          </div>
+          <div class="kpi ok">
+            <div class="label">SV quay lại học bình thường</div>
+            <div class="value">${returnedCount}</div>
+            <div class="hint">Từ nguy cơ → ổn định (toàn kỳ)</div>
+          </div>
+          <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}">
+            <div class="label">SV diện đặc thù</div>
+            <div class="value">${specialGroupTotal}</div>
+            <div class="hint">Bảo lưu · Thôi học · Nghỉ DH · Đình chỉ</div>
+          </div>
+          <div class="kpi ${avgDays !== null && avgDays > 14 ? 'warn' : avgDays !== null ? 'ok' : ''}">
+            <div class="label">Thời gian xử lý TB</div>
+            <div class="value">${avgDays !== null ? avgDays : '—'}<small>${avgDays !== null ? ' ngày' : ''}</small></div>
+            <div class="hint">Từ phát hiện → đóng case (${closedEsc.length} case)</div>
+          </div>
+        </div>
+
+        <div class="dashboard-section-label">Tình trạng SV nguy cơ & case đang xử lý</div>
+        <div class="kpi-grid kpi-grid-4">
+          <div class="kpi ${atRisk.length > 0 ? 'danger' : 'ok'}">
+            <div class="label">SV nguy cơ / có vấn đề</div>
+            <div class="value">${atRisk.length}</div>
+            <div class="hint">Cao: ${riskHigh.length} · TB: ${riskMed.length} · Thấp: ${riskLow.length}</div>
+          </div>
+          <div class="kpi ${openEsc.length > 0 ? 'warn' : ''}">
+            <div class="label">Case QLĐT đang mở</div>
+            <div class="value">${openEsc.length}</div>
+            <div class="hint">${totalEsc} tổng case đã tạo</div>
+            ${openEsc.length > 0 ? `<button class="btn btn-warn btn-xs" onclick="App.go('escalations')" style="margin-top:6px">Xem ngay →</button>` : ''}
+          </div>
+          <div class="kpi ok">
+            <div class="label">Case đã đóng</div>
+            <div class="value">${closedEsc.length}</div>
+            <div class="hint">Tỷ lệ xử lý: <strong>${resolveRate}%</strong></div>
+          </div>
+          <div class="kpi ${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length > 0 ? 'danger' : 'ok'}">
+            <div class="label">SV nguy cơ chưa có case</div>
+            <div class="value">${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length}</div>
+            <div class="hint">Cần lập case theo dõi QLĐT</div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:18px">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Phân loại nguyên nhân SV nguy cơ</h2>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('at-risk')">Xem danh sách SV →</button>
+            </div>
+            <div class="panel-body">
+              <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px;padding:8px 10px;background:var(--surface);border-radius:7px;line-height:1.55">
+                Dữ liệu từ <strong style="color:var(--ink)">${atRisk.length} SV</strong> đang ở trạng thái nguy cơ / có vấn đề, phân loại theo trường "Ghi chú nguyên nhân" do CVHT cập nhật.
+                Bấm vào tên lớp để xem chi tiết từng sinh viên.
+              </div>
+              ${causeEntries.length > 0
+                ? causeEntries.map(([cause, count]) => `
+                    <div class="risk-cause-row">
+                      <div class="risk-cause-label" title="${esc(cause)}">${esc(cause)}</div>
+                      <div class="risk-cause-bar-wrap">
+                        <div class="risk-cause-bar" style="width:${Math.round(count / maxCause * 100)}%"></div>
+                      </div>
+                      <div class="risk-cause-count">${count}</div>
+                    </div>`).join('')
+                : '<div class="empty" style="padding:12px 0">Chưa có SV nguy cơ nào được phân loại nguyên nhân — CVHT cần cập nhật ghi chú khi đánh dấu SV nguy cơ.</div>'}
+              ${atRisk.length > 0 && subjectEntries.length > 0 ? `
+                <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft)">
+                  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px">Phân bố theo môn học</div>
+                  ${subjectEntries.map(([sub, cnt]) => `
+                    <div class="risk-cause-row">
+                      <div class="risk-cause-label" title="${esc(sub)}">${esc(sub)}</div>
+                      <div class="risk-cause-bar-wrap">
+                        <div class="risk-cause-bar" style="width:${Math.round(cnt / maxSubject * 100)}%;background:var(--info)"></div>
+                      </div>
+                      <div class="risk-cause-count">${cnt}</div>
+                    </div>`).join('')}
+                </div>` : ''}
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Phân tích 4 nhóm đặc thù</h2>
+              <span style="font-size:11px;color:var(--muted)">Dựa trên trường Tình trạng học</span>
+            </div>
+            <div class="panel-body">
+              <div class="special-groups-grid">
+                <div class="special-group-card danger">
+                  <div class="sg-count">${thoiHocList.length}</div>
+                  <div class="sg-label">Thôi học</div>
+                  <div class="sg-hint">${thoiHocList.length > 0 ? sgInitials(thoiHocList) : 'Không có'}</div>
+                </div>
+                <div class="special-group-card warn">
+                  <div class="sg-count">${baoLuuList.length}</div>
+                  <div class="sg-label">Bảo lưu</div>
+                  <div class="sg-hint">${baoLuuList.length > 0 ? sgInitials(baoLuuList) : 'Không có'}</div>
+                </div>
+                <div class="special-group-card info">
+                  <div class="sg-count">${nghiDaiHanList.length}</div>
+                  <div class="sg-label">Nghỉ dài hạn</div>
+                  <div class="sg-hint">${nghiDaiHanList.length > 0 ? sgInitials(nghiDaiHanList) : 'Không có'}</div>
+                </div>
+                <div class="special-group-card">
+                  <div class="sg-count">${dinhChiList.length}</div>
+                  <div class="sg-label">Đình chỉ</div>
+                  <div class="sg-hint">${dinhChiList.length > 0 ? sgInitials(dinhChiList) : 'Không có'}</div>
+                </div>
+              </div>
+
+              ${specialGroupTotal > 0 ? (() => {
+                const allGroups = [
+                  { label: 'Thôi học', list: thoiHocList, cls: 'danger' },
+                  { label: 'Bảo lưu', list: baoLuuList, cls: 'warn' },
+                  { label: 'Nghỉ dài hạn', list: nghiDaiHanList, cls: 'info' },
+                  { label: 'Đình chỉ', list: dinhChiList, cls: '' },
+                ].filter((g) => g.list.length > 0);
+                return `<div style="margin-top:14px;border-top:1px solid var(--line-soft);padding-top:12px">
+                  ${allGroups.map((g) => `
+                    <div style="margin-bottom:10px">
+                      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px">${g.label} (${g.list.length})</div>
+                      ${g.list.map((s) => {
+                        const cls = classById(s.classId);
+                        const enroll = s.enrollStatus || s.statusNote || '—';
+                        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:var(--surface);margin-bottom:3px;cursor:pointer;font-size:12px"
+                                     onclick="App.go('classes/${s.classId}')">
+                          <span style="flex:0 0 130px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.name)}</span>
+                          <span class="badge badge-muted" style="font-size:10px">${esc(cls?.code || '—')}</span>
+                          <span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(enroll)}</span>
+                        </div>`;
+                      }).join('')}
+                    </div>`).join('')}
+                </div>`;
+              })() : `<div style="margin-top:12px;padding:10px 12px;background:var(--ok-bg);border-radius:8px;font-size:12px;color:var(--ok);border-left:3px solid var(--ok)">
+                Không có SV diện đặc thù được ghi nhận trong dữ liệu hiện tại.
+              </div>`}
+
+              <div style="font-size:11px;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--line-soft)">
+                Dữ liệu dựa trên trường "Tình trạng học" (enrollStatus) của từng sinh viên. Cập nhật tại trang
+                <button class="btn btn-ghost" style="font-size:11px;padding:1px 6px;display:inline" onclick="App.go('classes')">Danh sách lớp →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-section-label">Tuân thủ vào lớp CVHT (2 tuần gần nhất)</div>
+        <div class="kpi-grid kpi-grid-3">
+          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : 'danger'}">
+            <div class="label">Lớp đã có CVHT vào</div>
+            <div class="value">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
+            <div class="hint">Độ phủ: <strong>${visitCoverage}%</strong></div>
+          </div>
+          <div class="kpi">
+            <div class="label">Lớp Hà Nội</div>
+            <div class="value">${hnClasses.length}</div>
+            <div class="hint">CVHT đã vào: ${hnClasses.filter((c) => recentVisitClassIds.has(c.id)).length} lớp</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Lớp Hồ Chí Minh</div>
+            <div class="value">${hcmClasses.length}</div>
+            <div class="hint">CVHT đã vào: ${hcmClasses.filter((c) => recentVisitClassIds.has(c.id)).length} lớp</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Nhật ký hoạt động tuần này</h2>
+              <span style="font-size:11px;color:var(--muted)">Từ thứ 2 · ${monday.toLocaleDateString('vi-VN')}</span>
+            </div>
+            <div>
+              <div style="display:flex;gap:0;border-bottom:1px solid var(--line-soft)">
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.3rem;font-weight:800;color:var(--ink)">${weekReports.length}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:1px">Báo cáo</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.3rem;font-weight:800;color:var(--info)">${weekVisits.length}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:1px">Vào lớp</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.3rem;font-weight:800;color:var(--warn)">${weekEscCreated.length}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:1px">Case mở</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px">
+                  <div style="font-size:1.3rem;font-weight:800;color:var(--ok)">${weekEscClosed.length}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:1px">Case đóng</div>
+                </div>
+              </div>
+              ${actItems.length > 0
+                ? `<div class="activity-feed">${actItems.map((item) => {
+                    const dotLabel = { report: 'BC', visit: 'VL', esc: '!', ok: '×' }[item.type] || '·';
+                    return `<div class="activity-item">
+                      <span class="act-dot act-dot-${item.type}">${dotLabel}</span>
+                      <div class="activity-body">
+                        <span style="color:var(--ink)">${item.text}${item.sub ? ` <span class="badge badge-muted" style="font-size:10px;padding:1px 6px">${esc(item.sub)}</span>` : ''}</span>
+                        <span class="activity-ts">${Scoring.fmtDateTime(item.ts)}</span>
+                      </div>
+                    </div>`;
+                  }).join('')}
+                  </div>`
+                : '<div class="empty" style="padding:20px">Chưa có hoạt động nào trong tuần này.</div>'}
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Danh sách lớp</h2>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('classes')">Xem tất cả →</button>
+            </div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Mã lớp</th><th>Cơ sở</th><th>CVHT</th><th>SV nguy cơ</th></tr></thead>
+              <tbody>${classes.slice(0, 10).map((c) => {
+                const classAtRisk = atRisk.filter((s) => s.classId === c.id).length;
+                return `<tr style="cursor:pointer" onclick="App.go('classes/${c.id}')">
+                  <td><strong>${esc(c.code)}</strong></td>
+                  <td><span class="badge badge-muted">${c.campusId || '?'}</span></td>
+                  <td style="font-size:12px">${shortName(c.cvhtId)}</td>
+                  <td>${classAtRisk > 0 ? `<span class="badge badge-danger">${classAtRisk}</span>` : '<span style="color:var(--muted);font-size:12px">—</span>'}</td>
+                </tr>`;
+              }).join('') || '<tr><td colspan="4" class="empty">Chưa có lớp</td></tr>'}
+              </tbody>
+            </table></div>
+          </div>
+        </div>`;
+    } else {
+      // Dashboard CVHT — weekly activity log
+      const todayCvht = new Date();
+      const mondayCvht = new Date(todayCvht);
+      mondayCvht.setDate(mondayCvht.getDate() - ((mondayCvht.getDay() + 6) % 7));
+      const cvhtWeekStr = `${mondayCvht.getFullYear()}-${pad(mondayCvht.getMonth() + 1)}-${pad(mondayCvht.getDate())}`;
+
+      const cvhtWeekReports = (db().reports || []).filter((rpt) =>
+        (rpt.createdAt || '').slice(0, 10) >= cvhtWeekStr && classes.some((c) => c.id === rpt.classId));
+      const cvhtWeekVisits = (db().visits || []).filter((v) =>
+        visitDateOf(v) >= cvhtWeekStr && (v.cvhtId === real() || classes.some((c) => c.id === v.classId)));
+      const cvhtWeekEscCreated = (db().escalations || []).filter((e) =>
+        (e.createdAt || '').slice(0, 10) >= cvhtWeekStr && (e.cvhtId === real() || classes.some((c) => c.id === e.classId)));
+      const cvhtWeekEscClosed = (db().escalations || []).filter((e) =>
+        e.resolvedAt && e.resolvedAt.slice(0, 10) >= cvhtWeekStr && (e.cvhtId === real() || classes.some((c) => c.id === e.classId)));
+
+      const cvhtActItems = [
+        ...cvhtWeekReports.map((rpt) => {
+          const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT tổng hợp' }[rpt.reportKind] || rpt.reportKind || '';
+          const stText = { SENT_TO_CVHT: 'chờ bạn', SEEN_BY_CVHT: 'bạn đã đọc', SENT_TO_QLDT: '→ QLĐT', SEEN_BY_QLDT: 'QLĐT đã đọc' }[rpt.status] || '';
+          return { ts: rpt.createdAt || '', type: 'report', text: `BC ${kLabel} · ${shortName(rpt.reporterId)} · ${stText}`, sub: classById(rpt.classId)?.code || '' };
+        }),
+        ...cvhtWeekVisits.map((v) => {
+          const vtLabel = VISIT_TYPES.find((t) => t.value === v.visitType)?.label?.split('(')[0]?.trim() || 'Sinh hoạt';
+          return { ts: v.createdAt || '', type: 'visit', text: `Vào lớp · ${vtLabel}`, sub: classById(v.classId)?.code || '' };
+        }),
+        ...cvhtWeekEscCreated.map((e) => {
+          const sv = (db().students || []).find((x) => x.id === e.studentId);
+          return { ts: e.createdAt || '', type: 'esc', text: `Mở case · ${esc(sv?.name || 'SV')}`, sub: classById(e.classId)?.code || '' };
+        }),
+        ...cvhtWeekEscClosed.map((e) => {
+          const sv = (db().students || []).find((x) => x.id === e.studentId);
+          return { ts: e.resolvedAt || '', type: 'ok', text: `Case đóng · ${esc(sv?.name || 'SV')} · QLĐT xử lý xong`, sub: classById(e.classId)?.code || '' };
+        }),
+      ].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 15);
+
+      $('#content').innerHTML = `
+        ${flowBanner()}
+        <div class="cta-hero">
+          <div><h2>${h.title}</h2><p>${h.sub}</p></div>
+          <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
+        </div>
+        <div class="kpi-grid kpi-grid-4">
+          <div class="kpi">
+            <div class="label">Lớp phụ trách</div>
+            <div class="value">${classes.length}</div>
+            <div class="hint">Trong phạm vi của bạn</div>
+          </div>
+          <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
+            <div class="label">BC chờ xử lý</div>
+            <div class="value">${pending.length}</div>
+            <div class="hint">Từ Bí thư / Lớp trưởng</div>
+          </div>
+          <div class="kpi ${atRisk.length > 0 ? 'danger' : ''}">
+            <div class="label">SV nguy cơ</div>
+            <div class="value">${atRisk.length}</div>
+            <div class="hint">Case đang mở: ${openEsc.length}</div>
+          </div>
+          <div class="kpi ${unreadCount() > 0 ? 'info' : ''}">
+            <div class="label">Thông báo mới</div>
+            <div class="value">${unreadCount()}</div>
+            <div class="hint">Chưa đọc</div>
+          </div>
+        </div>
+        <div class="kpi-grid kpi-grid-3" style="margin-top:0">
+          <div class="kpi ok">
+            <div class="label">SV quay lại bình thường</div>
+            <div class="value">${returnedCount}</div>
+            <div class="hint">Từng nguy cơ → ổn định</div>
+          </div>
+          <div class="kpi ${visitCoverage >= 80 ? 'ok' : 'warn'}">
+            <div class="label">Lớp đã vào (2 tuần)</div>
+            <div class="value">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
+            <div class="hint">Phủ ${visitCoverage}% lớp phụ trách</div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.go('visits')">Ghi vào lớp →</button>
+          </div>
+          <div class="kpi ok">
+            <div class="label">Tỷ lệ xử lý case</div>
+            <div class="value">${resolveRate}%</div>
+            <div class="hint">${closedEsc.length}/${totalEsc} case đã đóng</div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Nhật ký hoạt động tuần này</h2>
+              <span style="font-size:11px;color:var(--muted)">Từ thứ 2 · ${mondayCvht.toLocaleDateString('vi-VN')}</span>
+            </div>
+            <div>
+              <div style="display:flex;gap:0;border-bottom:1px solid var(--line-soft)">
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.2rem;font-weight:800;color:var(--ink)">${cvhtWeekReports.length}</div>
+                  <div style="font-size:10px;color:var(--muted)">Báo cáo</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.2rem;font-weight:800;color:var(--info)">${cvhtWeekVisits.length}</div>
+                  <div style="font-size:10px;color:var(--muted)">Vào lớp</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px;border-right:1px solid var(--line-soft)">
+                  <div style="font-size:1.2rem;font-weight:800;color:var(--warn)">${cvhtWeekEscCreated.length}</div>
+                  <div style="font-size:10px;color:var(--muted)">Case mở</div>
+                </div>
+                <div style="flex:1;text-align:center;padding:10px 4px">
+                  <div style="font-size:1.2rem;font-weight:800;color:var(--ok)">${cvhtWeekEscClosed.length}</div>
+                  <div style="font-size:10px;color:var(--muted)">Case đóng</div>
+                </div>
+              </div>
+              ${cvhtActItems.length > 0
+                ? `<div class="activity-feed">${cvhtActItems.map((item) => {
+                    const dotLabel = { report: 'BC', visit: 'VL', esc: '!', ok: '×' }[item.type] || '·';
+                    return `<div class="activity-item">
+                      <span class="act-dot act-dot-${item.type}">${dotLabel}</span>
+                      <div class="activity-body">
+                        <span style="color:var(--ink)">${item.text}${item.sub ? ` <span class="badge badge-muted" style="font-size:10px;padding:1px 6px">${esc(item.sub)}</span>` : ''}</span>
+                        <span class="activity-ts">${Scoring.fmtDateTime(item.ts)}</span>
+                      </div>
+                    </div>`;
+                  }).join('')}
+                  </div>`
+                : '<div class="empty" style="padding:20px">Chưa có hoạt động nào trong tuần này.</div>'}
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Lớp của bạn</h2><button class="btn btn-ghost btn-sm" onclick="App.go('classes')">Tất cả</button></div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Mã lớp</th><th>Môn</th><th>SV nguy cơ</th></tr></thead>
+              <tbody>${classes.slice(0, 8).map((c) => {
+                const classAtRisk = atRisk.filter((s) => s.classId === c.id).length;
+                return `<tr style="cursor:pointer" onclick="App.go('classes/${c.id}')">
+                  <td><strong>${esc(c.code)}</strong></td>
+                  <td style="font-size:12px">${esc(subjectOf(c))}</td>
+                  <td>${classAtRisk > 0 ? `<span class="badge badge-danger">${classAtRisk}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+                </tr>`;
+              }).join('') || '<tr><td colspan="3" class="empty">Chưa có lớp</td></tr>'}
+              </tbody>
+            </table></div>
+            <div style="padding:10px 16px;border-top:1px solid var(--line-soft);display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" onclick="App.go('at-risk')">SV nguy cơ →</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Vào lớp →</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('escalations')">Case QLĐT →</button>
+            </div>
+          </div>
+        </div>`;
+    }
   }
 
   /* ========== CLASSES ========== */
@@ -1877,7 +2493,7 @@
     const cd = Scoring.formatCountdown(Scoring.getWeekDeadline());
     const criteria = SEED.criteriaNN;
     const editingNn = state.editingReportId
-      ? db().reports.find((x) => x.id === state.editingReportId && x.reportKind === 'LOP_TRUONG_NN' && x.status === 'DRAFT')
+      ? (db().reports || []).find((x) => x.id === state.editingReportId && x.reportKind === 'LOP_TRUONG_NN' && x.status === 'DRAFT')
       : null;
     let selectedId = editingNn?.classId || classList[0].id;
     if (editingNn) state.nnAttachments = [...(editingNn.attachments || [])];
@@ -2112,14 +2728,14 @@
     if (!classList.length) { setPage('BC tổng hợp', ''); $('#content').innerHTML = '<div class="empty">Chưa phụ trách lớp</div>'; return; }
     const range = Scoring.getWeekRange();
     const editingCvht = state.editingReportId
-      ? db().reports.find((x) => x.id === state.editingReportId && x.reportKind === 'CVHT_TONG_HOP' && x.status === 'DRAFT')
+      ? (db().reports || []).find((x) => x.id === state.editingReportId && x.reportKind === 'CVHT_TONG_HOP' && x.status === 'DRAFT')
       : null;
     let selectedId = editingCvht?.classId || classList[0].id;
     if (editingCvht) state.cvhtAttachments = [...(editingCvht.attachments || [])];
 
     const paint = () => {
       const cls = classList.find((c) => c.id === selectedId) || classList[0];
-      const ltReports = db().reports.filter((r) =>
+      const ltReports = (db().reports || []).filter((r) =>
         r.classId === cls.id && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind) && ['SENT_TO_CVHT', 'SEEN_BY_CVHT'].includes(r.status)
       );
       const visits = (db().visits || []).filter((v) => v.classId === cls.id).slice(0, 3);
@@ -2295,7 +2911,7 @@
       : classList[0].id;
 
     const editing = state.editingReportId
-      ? db().reports.find((x) => x.id === state.editingReportId && x.reportKind === kind && x.status === 'DRAFT')
+      ? (db().reports || []).find((x) => x.id === state.editingReportId && x.reportKind === kind && x.status === 'DRAFT')
       : null;
     if (editing) selectedId = editing.classId;
 
@@ -2442,6 +3058,23 @@
           <div class="score-ring" id="scoreRing" style="--p:${total}%"><span>${total}</span></div>
         </div>
         <div id="scoreSummary">${renderScoreSummaryHtml(sel, kind, total)}</div>
+        <div class="panel scoring-guide-panel" style="margin-bottom:14px">
+          <details>
+            <summary style="cursor:pointer;padding:12px 18px;font-size:.875rem;font-weight:600;color:var(--ink)">
+              Căn cứ tự chấm điểm — Bấm để xem hướng dẫn
+            </summary>
+            <div class="panel-body" style="padding-top:0;font-size:.825rem;color:var(--muted);line-height:1.75">
+              <p>Nhập <strong style="color:var(--ink)">% hoàn thành</strong> theo thực tế tuần này. Điểm được tính tự động theo thang bậc:</p>
+              <ul style="margin:8px 0 0 18px">
+                <li><strong style="color:var(--ink)">100%</strong> → Điểm tối đa (hoàn thành toàn bộ, có minh chứng)</li>
+                <li><strong style="color:var(--ink)">90–99%</strong> → Khoảng 90% điểm tối đa (gần đạt, có thể thiếu 1–2 việc nhỏ)</li>
+                <li><strong style="color:var(--ink)">80–89%</strong> → Khoảng 80% điểm tối đa (đạt cơ bản)</li>
+                <li><strong style="color:var(--ink)">&lt; 80%</strong> → 0 điểm (không đạt ngưỡng tối thiểu)</li>
+              </ul>
+              <p style="margin-top:8px"><strong style="color:var(--brand)">Lưu ý:</strong> CVHT có thể điều chỉnh lại điểm sau khi xem xét minh chứng. Ghi chú chi tiết và đính kèm minh chứng để báo cáo được chấp thuận chính xác.</p>
+            </div>
+          </details>
+        </div>
         ${prependHtml || ''}
         ${criteria.map((c, i) => {
           const fd = formData[c.id] || { value: 0, note: '' };
@@ -2454,13 +3087,13 @@
             </div>
             <div class="criterion-grid">
               ${c.type === 'late_count' ? `
-                <div class="field" style="margin:0"><label>Số lần trễ</label><input type="number" value="${late}" disabled /></div>
-                <div class="field" style="margin:0"><label>Ghi chú</label><input value="Tự động từ lịch sử" disabled /></div>
+                <div class="field" style="margin:0"><label>Số lần nộp trễ</label><input type="number" value="${late}" disabled /></div>
+                <div class="field" style="margin:0"><label>Ghi chú</label><input value="Tự động từ lịch sử nộp BC" disabled /></div>
               ` : `
-                <div class="field" style="margin:0"><label>% hoàn thành</label>
+                <div class="field" style="margin:0"><label>% hoàn thành (0–100)</label>
                   <input type="number" min="0" max="100" data-cid="${c.id}" data-field="value" value="${fd.value}" /></div>
-                <div class="field" style="margin:0"><label>Ghi chú</label>
-                  <input type="text" data-cid="${c.id}" data-field="note" value="${escAttr(fd.note)}" /></div>
+                <div class="field" style="margin:0"><label>Ghi chú / minh chứng</label>
+                  <input type="text" data-cid="${c.id}" data-field="note" value="${escAttr(fd.note)}" placeholder="VD: Số liệu, sự kiện cụ thể…" /></div>
               `}
               <div class="score-preview" id="pts-${c.id}">${pts}/${c.max}</div>
             </div>
@@ -2628,7 +3261,7 @@
           }
         });
 
-        const report = db().reports.find((x) => x.id === reportId);
+        const report = (db().reports || []).find((x) => x.id === reportId);
         if (status !== 'DRAFT' && onSubmitNotify && report) onSubmitNotify(report, current);
         state.reportDraft = null;
         state.editingReportId = null;
@@ -2885,7 +3518,7 @@
   }
 
   function pageReportDetail(id) {
-    const r = db().reports.find((x) => x.id === id);
+    const r = (db().reports || []).find((x) => x.id === id);
     if (!r) { toast('Không tìm thấy', 'err'); return navigate('reports'); }
     if (!canAccessReport(r)) return denyAccess('Bạn không được xem báo cáo này');
     const cls = classById(r.classId);
@@ -2902,11 +3535,38 @@
         </div></div>`;
     }
     if (role() === 'CVHT' && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind) && r.status === 'SENT_TO_CVHT') {
-      actions = `<div class="panel"><div class="panel-head"><h2>Xử lý báo cáo</h2></div>
+      const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
+      const origScore = r.totalScore != null ? r.totalScore : '—';
+      const adjScore = r.adjustedScore != null ? r.adjustedScore : '';
+      actions = `<div class="panel">
+        <div class="panel-head">
+          <h2>Xử lý báo cáo</h2>
+          <span style="font-size:12px;color:var(--muted)">CVHT xem xét minh chứng và ghi chú</span>
+        </div>
         <div class="panel-body">
-          <div class="field"><label>Ghi chú nội bộ</label><textarea id="reviewNote" rows="2"></textarea></div>
+          <div class="field"><label>Ghi chú xem xét (nội bộ)</label>
+            <textarea id="reviewNote" rows="2" placeholder="Nhận xét về nội dung, minh chứng, tính chính xác của báo cáo…">${esc(r.reviewNote || '')}</textarea>
+          </div>
+          <details class="score-adjust-section" style="margin-bottom:14px">
+            <summary style="cursor:pointer;font-size:.875rem;font-weight:600;color:var(--ink);padding:8px 0">
+              ✏️ Điều chỉnh điểm tự chấm (nếu minh chứng chưa chính xác)
+            </summary>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;margin-top:8px">
+              <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc do LT/BT tự chấm: <strong>${origScore}/${maxScore}</strong>. Nếu minh chứng không đủ căn cứ, CVHT có thể điều chỉnh lại.</p>
+              <div class="grid-2">
+                <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
+                  <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
+                    value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
+                </div>
+                <div class="field"><label>Lý do điều chỉnh</label>
+                  <input type="text" id="adjustReason" value=""
+                    placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
+                </div>
+              </div>
+            </div>
+          </details>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ok" id="btnAck">Xác nhận đã đọc</button>
+            <button class="btn btn-ok" id="btnAck">Xác nhận đã đọc &amp; lưu</button>
             <button class="btn btn-primary" onclick="App.go('report-cvht')">Lập BC Tổng hợp →</button>
             ${r.reportKind === 'LOP_TRUONG_NN' ? '<button class="btn btn-ghost" onclick="App.go(\'rpoint\')">Đánh giá R-Point →</button>' : ''}
           </div>
@@ -3009,14 +3669,17 @@
     }
 
     setPage('Chi tiết báo cáo', classLabel(cls));
+    const displayScore = r.adjustedScore != null ? r.adjustedScore : r.totalScore;
+    const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
     $('#content').innerHTML = `
       ${flowBanner()}
       <div class="cta-hero" style="padding:18px 24px">
         <div>
           <h2>${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</h2>
           <p>${esc(cls?.code || '')} · <strong>${esc(ctx.subjectName)}</strong>${ctx.subjectCode ? ` (${esc(ctx.subjectCode)})` : ''} · ${esc(Curriculum.semesterLabel(ctx.semesterId))} · ${userName(r.reporterId)} · ${Scoring.fmtDateTime(r.createdAt)} · ${statusBadge(r)}</p>
+          ${r.adjustedScore != null ? `<p style="margin-top:6px;font-size:.8rem"><span class="badge badge-warn">Điểm đã điều chỉnh bởi CVHT: ${r.adjustedScore}/${maxScore}</span> (Gốc: ${r.totalScore ?? '—'}) ${r.adjustReason ? `· ${esc(r.adjustReason)}` : ''}</p>` : ''}
         </div>
-        ${r.totalScore != null ? `<div class="score-ring" style="--p:${r.reportKind === 'LOP_TRUONG_NN' ? (Number(r.totalScore) / 10) * 100 : r.totalScore}%"><span>${r.totalScore}${r.reportKind === 'LOP_TRUONG_NN' ? '<small style="font-size:.45em">/10</small>' : ''}</span></div>` : ''}
+        ${displayScore != null ? `<div class="score-ring" style="--p:${r.reportKind === 'LOP_TRUONG_NN' ? (Number(displayScore) / 10) * 100 : displayScore}%"><span>${displayScore}${r.reportKind === 'LOP_TRUONG_NN' ? '<small style="font-size:.45em">/10</small>' : ''}</span></div>` : ''}
       </div>
       ${semesterPanel}
       ${body}
@@ -3032,20 +3695,60 @@
           SENT_TO_QLDT: 'SEEN_BY_QLDT',
         }[r.status];
         if (!next) return;
+        const adjRaw = ($('#adjustedScore')?.value || '').trim();
+        const adjReason = ($('#adjustReason')?.value || '').trim();
+        const adjScore = adjRaw !== '' ? Number(adjRaw) : null;
+        const reviewNote = $('#reviewNote')?.value?.trim() || '';
+        const now = new Date().toISOString();
+
         Store.update((d) => {
           const item = d.reports.find((x) => x.id === id);
+          if (!item) return;
           item.status = next;
-          item.reviewedAt = new Date().toISOString();
+          item.reviewedAt = now;
           item.reviewerId = user.id;
-          item.reviewNote = $('#reviewNote')?.value || '';
-          d.notifications.unshift({
-            id: Store.uid('n'), userId: item.reporterId,
-            title: 'Báo cáo đã được tiếp nhận',
-            body: `${user.name} đã xác nhận báo cáo ${cls?.code}.`,
-            read: false, createdAt: new Date().toISOString(),
+          item.reviewNote = reviewNote;
+          if (adjScore !== null && !isNaN(adjScore)) {
+            item.adjustedScore = adjScore;
+            item.adjustReason = adjReason;
+            item.reviewNote = item.reviewNote
+              ? `${item.reviewNote} [Điều chỉnh điểm: ${adjScore} — ${adjReason || 'CVHT xem xét'}]`
+              : `[Điều chỉnh điểm: ${adjScore} — ${adjReason || 'CVHT xem xét'}]`;
+          }
+
+          // ── Thông báo khép kín: gửi đến LT, BT và CVHT của lớp ──
+          if (next === 'SEEN_BY_CVHT') {
+            // CVHT xác nhận báo cáo của LT/BT → thông báo lại cho người nộp + LT + BT
+            const noteReview = reviewNote ? ` Nhận xét: "${reviewNote.slice(0, 60)}${reviewNote.length > 60 ? '…' : ''}"` : '';
+            const scoreNote = adjScore !== null && !isNaN(adjScore)
+              ? ` Điểm điều chỉnh: ${adjScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100} (gốc: ${r.totalScore ?? '—'}). Lý do: ${adjReason || 'CVHT xem xét lại minh chứng'}.`
+              : (r.totalScore != null ? ` Điểm gốc được giữ nguyên: ${r.totalScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100}.` : '');
+            const notifyTitle = adjScore !== null ? 'CVHT đã điều chỉnh điểm báo cáo' : 'CVHT đã xem xét báo cáo của bạn';
+            const notifyBody = `${user.name} đã xem xét BC của ${cls?.code}.${scoreNote}${noteReview} Báo cáo đã được ghi nhận.`;
+            // Thông báo người nộp BC (reporterId) + LT + BT trong lớp (dedup bằng Set)
+            const stakeholders = [r.reporterId, cls?.ltId, cls?.btId].filter(Boolean);
+            [...new Set(stakeholders)].forEach((uid) => {
+              d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: notifyTitle, body: notifyBody, read: false, createdAt: now });
+            });
+          } else if (next === 'SEEN_BY_QLDT') {
+            // QLĐT xác nhận báo cáo tổng hợp của CVHT → thông báo lại cho CVHT
+            const noteReview = reviewNote ? ` Ghi chú: "${reviewNote.slice(0, 80)}${reviewNote.length > 80 ? '…' : ''}"` : '';
+            const notifyBody = `QLĐT (${user.name}) đã xem xét báo cáo tổng hợp của bạn về ${cls?.code}.${noteReview} Báo cáo đã được ghi nhận.`;
+            cvhtNotifyIds(cls?.cvhtId).forEach((uid) => {
+              d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: 'QLĐT đã xem xét BC tổng hợp', body: notifyBody, read: false, createdAt: now });
+            });
+          }
+
+          d.auditLog.unshift({
+            id: Store.uid('al'), actorId: user.id, actorName: user.name,
+            action: adjScore !== null ? 'REPORT_SCORE_ADJUST' : 'REPORT_ACK',
+            entity: 'Report', entityId: id,
+            beforeJson: String(r.totalScore ?? ''),
+            afterJson: adjScore !== null ? JSON.stringify({ adjustedScore: adjScore, reason: adjReason }) : 'ACK',
+            at: now,
           });
         });
-        toast('Đã xác nhận');
+        toast(adjScore !== null ? `Đã xác nhận · Điểm điều chỉnh: ${adjScore}` : 'Đã xác nhận · Đã gửi thông báo kết quả về lớp');
         pageReportDetail(id);
         renderShell();
       };
@@ -3077,40 +3780,64 @@
       ].join(' '),
     }));
 
-    setPage('Vào lớp / quan sát', 'Lọc lịch sử theo lớp · ngày · nội dung');
+    setPage('Lịch vào lớp / Quan sát', 'Ghi nhận và lọc lịch sử theo lớp · ngày · mục đích');
+
+    // Thống kê nhanh: số buổi trong tháng hiện tại theo từng CVHT
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const thisMonthVisits = allVisits.filter((v) => (v.visitDate || v.createdAt).startsWith(thisMonth));
+
     $('#content').innerHTML = `
       ${flowBanner()}
-      ${role() === 'CVHT' ? `<div class="panel"><div class="panel-head"><h2>Ghi nhận buổi vào lớp</h2></div>
+      ${role() === 'CVHT' ? `
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-head">
+          <h2>Ghi nhận buổi vào lớp</h2>
+          <span class="badge badge-info">${thisMonthVisits.filter((v) => v.cvhtId === Store.realId(user)).length} buổi tháng này</span>
+        </div>
         <div class="panel-body">
           <div class="grid-2">
             <div class="field"><label>Lớp · Môn</label>
-              <select id="vClass">${classes.map((c) => `<option value="${c.id}">${c.code} — ${esc(subjectOf(c))}</option>`).join('')}</select></div>
-            <div class="field"><label>Ngày</label><input type="date" id="vDate" value="${new Date().toISOString().slice(0, 10)}" /></div>
+              <select id="vClass">${classes.map((c) => `<option value="${c.id}">${c.code} — ${esc(subjectOf(c))}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label>Ngày vào lớp</label>
+              <input type="date" id="vDate" value="${new Date().toISOString().slice(0, 10)}" />
+            </div>
           </div>
-          <div class="field"><label>Quan sát / nhận xét</label>
-            <textarea id="vNote" rows="3" placeholder="Sĩ số, không khí lớp, vấn đề phát sinh…"></textarea></div>
+          <div class="field"><label>Mục đích buổi vào lớp <span style="color:var(--brand)">*</span></label>
+            <select id="vType">
+              ${VISIT_TYPES.map((t) => `<option value="${t.value}">${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Nội dung quan sát / nhận xét <span style="color:var(--brand)">*</span></label>
+            <textarea id="vNote" rows="4" placeholder="Sĩ số hôm nay, không khí lớp, vấn đề phát sinh, hành động đã thực hiện…"></textarea>
+          </div>
           <button class="btn btn-primary" id="btnSaveVisit">Lưu buổi vào lớp</button>
-        </div></div>` : ''}
-      <div class="panel"><div class="panel-head"><h2>Lịch sử vào lớp</h2>
-        <span style="font-size:12px;color:var(--muted)">${visits.length}/${allVisits.length} buổi</span></div>
+        </div>
+      </div>` : ''}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Lịch sử vào lớp — ${thisMonthVisits.length} buổi tháng ${new Date().getMonth() + 1}</h2>
+          <span style="font-size:12px;color:var(--muted)">${visits.length}/${allVisits.length} buổi (đang lọc)</span>
+        </div>
         <div class="panel-body" style="padding-top:0">
           ${traceBarHTML('visits', {
             classes,
-            placeholder: 'Tìm lớp, CVHT, nội dung quan sát…',
+            placeholder: 'Tìm lớp, CVHT, mục đích, nội dung quan sát…',
             resultText: `${visits.length} buổi`,
           })}
           <div class="table-wrap"><table class="trace-table">
-            <thead><tr><th>Ngày</th><th>Lớp</th><th>Môn</th><th>CVHT</th><th>Quan sát</th></tr></thead>
+            <thead><tr><th>Ngày</th><th>Lớp</th><th>Mục đích</th><th>CVHT</th><th>Quan sát</th></tr></thead>
             <tbody>${visits.length ? visits.map((v) => {
               const cls = classById(v.classId);
+              const vtLabel = VISIT_TYPES.find((t) => t.value === v.visitType)?.label || (v.visitType ? v.visitType : 'Sinh hoạt định kỳ');
               return `<tr>
                 <td class="trace-time">${Scoring.fmtDate(v.visitDate)}</td>
                 <td><strong>${esc(cls?.code || '—')}</strong></td>
-                <td>${esc(subjectOf(cls))}</td>
+                <td><span style="font-size:12px">${esc(vtLabel)}</span></td>
                 <td>${esc(userName(v.cvhtId))}</td>
                 <td><div class="trace-cell-note">${esc(v.observation)}</div></td>
               </tr>`;
-            }).join('') : `<tr><td colspan="5"><div class="empty">${allVisits.length ? 'Không có buổi khớp bộ lọc' : 'Chưa có buổi vào lớp'}</div></td></tr>`}
+            }).join('') : `<tr><td colspan="5"><div class="empty">${allVisits.length ? 'Không có buổi khớp bộ lọc' : 'Chưa có buổi vào lớp — CVHT bấm Ghi nhận để bắt đầu'}</div></td></tr>`}
             </tbody>
           </table></div>
         </div>
@@ -3120,8 +3847,9 @@
     const btn = $('#btnSaveVisit');
     if (btn) {
       btn.onclick = () => {
-        const note = $('#vNote').value.trim();
-        if (!note) return toast('Nhập nhận xét', 'err');
+        const note = ($('#vNote').value || '').trim();
+        if (!note) return toast('Nhập nội dung quan sát / nhận xét', 'err');
+        const visitType = $('#vType')?.value || 'DINH_KY';
         Store.update((d) => {
           if (!d.visits) d.visits = [];
           d.visits.unshift({
@@ -3129,8 +3857,15 @@
             classId: $('#vClass').value,
             cvhtId: Store.realId(user),
             visitDate: $('#vDate').value,
+            visitType,
             observation: note,
             createdAt: new Date().toISOString(),
+          });
+          d.auditLog.unshift({
+            id: Store.uid('al'), actorId: user.id, actorName: user.name,
+            action: 'VISIT_LOG', entity: 'Visit', entityId: $('#vClass').value,
+            beforeJson: '', afterJson: JSON.stringify({ visitType, date: $('#vDate').value, note: note.slice(0, 80) }),
+            at: new Date().toISOString(),
           });
         });
         toast('Đã lưu buổi vào lớp');
@@ -3296,8 +4031,14 @@
             <option value="HIGH">Cao</option>
           </select>
         </div>
-        <div class="field"><label>Ghi chú / lý do</label>
-          <textarea id="mNote" rows="3" placeholder="VD: Nghỉ học, mất liên lạc, chậm BTVN…"></textarea></div>`;
+        <div class="field" id="mCategoryWrap"><label>Nguyên nhân chính <span style="color:var(--brand)">*</span></label>
+          <select id="mCategory">
+            <option value="">— Chọn nguyên nhân —</option>
+            ${RISK_CATEGORIES.map((c) => `<option value="${escAttr(c)}">${esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Ghi chú chi tiết (không bắt buộc)</label>
+          <textarea id="mNote" rows="2" placeholder="Chi tiết thêm: số buổi nghỉ, ngày liên lạc cuối…"></textarea></div>`;
     };
 
     $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal">
@@ -3312,8 +4053,11 @@
     const bindInner = () => {
       const syncLevel = () => {
         const st = $('#mStatus')?.value;
+        const isRisk = st === 'AT_RISK' || st === 'WATCH';
         const wrap = $('#mLevelWrap');
-        if (wrap) wrap.style.display = (st === 'AT_RISK' || st === 'WATCH') ? '' : 'none';
+        const catWrap = $('#mCategoryWrap');
+        if (wrap) wrap.style.display = isRisk ? '' : 'none';
+        if (catWrap) catWrap.style.display = isRisk ? '' : 'none';
       };
       $('#mStatus').onchange = syncLevel;
       syncLevel();
@@ -3331,10 +4075,13 @@
       const studentId = $('#mStudent')?.value;
       if (!studentId) return toast('Chọn sinh viên trong lớp', 'err');
       const status = $('#mStatus').value;
-      const note = ($('#mNote').value || '').trim();
-      if ((status === 'AT_RISK' || status === 'WATCH') && !note) {
-        return toast('Nhập ghi chú / lý do', 'err');
+      const isRisk = status === 'AT_RISK' || status === 'WATCH';
+      const category = ($('#mCategory')?.value || '').trim();
+      const detail = ($('#mNote')?.value || '').trim();
+      if (isRisk && !category) {
+        return toast('Chọn nguyên nhân chính', 'err');
       }
+      const note = isRisk ? (detail ? `${category} — ${detail}` : category) : detail;
       applyStudentStatus(studentId, {
         status,
         note,
@@ -3353,12 +4100,12 @@
     const risk = studentsInScope().filter((s) => s.status === 'AT_RISK');
     const list = [...risk, ...watch];
     const isManager = ['CVHT', 'QLDT'].includes(role());
-    setPage(isManager ? 'Quản lý SV nguy cơ' : 'Sinh viên nguy cơ', `${risk.length} nguy cơ · ${watch.length} có vấn đề`);
+    setPage(isManager ? 'Quản lý SV nguy cơ' : 'Theo dõi SV nguy cơ', `${risk.length} nguy cơ · ${watch.length} có vấn đề`);
     $('#content').innerHTML = `
       <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
         ${isManager
-          ? 'Quản lý sinh viên đang theo dõi: cập nhật trạng thái, ghi biên bản tư vấn, chuyển QLĐT hoặc đưa về ổn định. Mọi thay đổi được lưu ở <strong style="color:var(--ink)">Lịch sử CSSV</strong>.'
-          : 'Ghi nhận trên <strong style="color:var(--ink)">SV đã có trong lớp</strong> (chi tiết lớp → Cập nhật, hoặc nút bên dưới). Ghi chú lưu trên hồ sơ SV.'}
+          ? '<strong style="color:var(--ink)">Luồng xử lý:</strong> Ghi nhận trạng thái → Tư vấn → Nếu không cải thiện sau 48h: <strong style="color:var(--ink)">Chuyển QLĐT</strong>. Khi SV ổn định trở lại, bấm <strong style="color:var(--ink)">Ổn định lại</strong>. Mọi thay đổi lưu ở Lịch sử CSSV.'
+          : 'Bấm <strong style="color:var(--ink)">+ Ghi nhận trạng thái</strong> để đánh dấu SV gặp vấn đề. Chọn nguyên nhân chính để CVHT dễ theo dõi và làm báo cáo.'}
       </div></div>
       <div class="kpi-grid kpi-grid-3" style="margin-bottom:14px">
         <div class="kpi danger"><div class="label">Nguy cơ</div><div class="value">${risk.length}</div></div>
@@ -3430,12 +4177,14 @@
   App.escalate = (studentId) => {
     if (role() !== 'CVHT' && !isAdmin()) return denyAccess();
     const s = allStudents().find((x) => x.id === studentId);
+    if (!s) return toast('Không tìm thấy sinh viên', 'err');
     const reason = prompt('Lý do chuyển QLĐT:', 'Không liên hệ được sau 48h');
     if (reason == null) return;
     const text = reason.trim();
     if (!text) return toast('Nhập lý do chuyển', 'err');
     const now = new Date().toISOString();
     Store.update((d) => {
+      if (!d.escalations) d.escalations = [];
       d.escalations.unshift({
         id: Store.uid('e'), studentId, classId: s.classId, cvhtId: Store.realId(user),
         reason: text, status: 'OPEN', createdAt: now, notes: [],
@@ -3590,8 +4339,8 @@
 
     $('#content').innerHTML = `
       <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
-        Mỗi case cần <strong style="color:var(--ink)">ghi chú quá trình xử lý</strong>.
-        QLĐT đóng case bằng <strong style="color:var(--ink)">Xử lý xong</strong> kèm nội dung kết luận.
+        <strong style="color:var(--ink)">Quy trình:</strong> CVHT chuyển case → QLĐT ghi chú quá trình xử lý → <strong style="color:var(--ink)">Đóng case</strong> khi hoàn tất.
+        Khi QLĐT đóng case, <strong style="color:var(--ink)">CVHT nhận thông báo tự động</strong> — không cần kiểm tra thủ công.
       </div></div>
       ${traceBarHTML('esc', {
         classes: scopeClasses,
@@ -3703,11 +4452,21 @@
         });
       });
       if (resolve) {
-        const cvhtId = e.cvhtId;
-        if (cvhtId) notify([cvhtId], 'Case QLĐT đã đóng', `${s?.name || 'SV'}: ${text}`);
-        toast('Đã đóng case kèm kết luận');
+        // ── Thông báo khép kín: QLĐT xử lý xong → gửi kết quả cho CVHT + LT + BT ──
+        const resolvedCls = classById(e.classId);
+        const svName = s?.name || 'SV';
+        const resolveTitle = `QLĐT đã xử lý case: ${svName}`;
+        const resolveBody = `${user.name} đã đóng case theo dõi SV ${svName} (${resolvedCls?.code || '—'}). Kết luận: ${text.slice(0, 120)}${text.length > 120 ? '…' : ''}`;
+        const toNotify = classStakeholderIds(resolvedCls, [user.id]);
+        notify(toNotify, resolveTitle, resolveBody);
+        toast('Đã đóng case · Đã gửi thông báo kết quả cho CVHT, LT và BT');
       } else {
-        toast('Đã thêm ghi chú');
+        // Khi thêm ghi chú (chưa đóng) → thông báo cho CVHT biết
+        if (e.cvhtId && e.cvhtId !== user.id) {
+          notify(cvhtNotifyIds(e.cvhtId), `QLĐT ghi chú case: ${s?.name || 'SV'}`,
+            `${user.name}: ${text.slice(0, 100)}${text.length > 100 ? '…' : ''}`);
+        }
+        toast('Đã thêm ghi chú · CVHT đã được thông báo');
       }
       close();
       pageEscalations();
@@ -4606,7 +5365,8 @@
           <p style="margin-top:6px"><strong style="color:var(--ink)">Thêm người / gửi BC / …:</strong> <em>tự đẩy lên Sheets</em> sau ~1–2 giây (không cần bấm Đẩy, trừ khi muốn đẩy ngay toàn bộ).</p>
           <p style="margin-top:12px">Tabs: <code style="font-size:11.5px">${esc(tabs)}</code></p>
           <p style="margin-top:8px">Trạng thái: <span class="badge ${on ? 'badge-ok' : 'badge-warn'}">${on ? 'sheets' : 'local'}</span>
-            ${on ? '' : ' — sửa config.js rồi reload để bật đồng bộ.'}</p>
+            ${on ? '' : ' — sửa config.js rồi reload để bật đồng bộ.'}
+            ${on ? `&nbsp; Cache: <span class="badge ${Store.isSheetsCacheFresh() ? 'badge-ok' : 'badge-muted'}">${Store.isSheetsCacheFresh() ? 'còn mới (10 phút)' : 'đã hết hạn'}</span>` : ''}</p>
         </div>
       </div>
       <div class="panel" style="margin-bottom:14px">
@@ -4631,13 +5391,15 @@
     if (pull) {
       pull.onclick = async () => {
         pull.disabled = true;
+        pull.textContent = '↓ Đang kéo…';
         try {
-          await Store.pullFromSheets();
+          await Store.pullFromSheets({ force: true });
           toast('Đã kéo dữ liệu từ Google Sheets');
           pageSheets();
         } catch (err) {
           toast(err.message || 'Lỗi kéo Sheets', 'err');
           pull.disabled = false;
+          pull.textContent = '↓ Kéo từ Sheets';
         }
       };
     }
@@ -4670,23 +5432,33 @@
   }
 
   function pageNotifications() {
-    const list = db().notifications.filter((n) => n.userId === user.id || n.userId === real());
-    setPage('Thông báo', `${list.filter((n) => !n.read).length} chưa đọc`);
-    $('#content').innerHTML = `<div class="panel"><div class="panel-body">
-      ${list.length ? list.map((n) => `
-        <div style="padding:12px 0;border-bottom:1px solid var(--line-soft);display:flex;gap:12px">
-          <div style="width:8px;height:8px;border-radius:50%;margin-top:6px;background:${n.read ? 'var(--line)' : 'var(--brand)'}"></div>
-          <div><strong>${esc(n.title)}</strong>
-            <p style="font-size:.875rem;color:var(--muted);margin-top:3px">${esc(n.body)}</p>
-            <div style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(n.createdAt)}</div>
-          </div>
-        </div>`).join('') : '<div class="empty">Không có thông báo</div>'}
-      ${list.length ? '<button class="btn btn-ghost btn-sm" id="btnReadAll" style="margin-top:12px">Đánh dấu đã đọc</button>' : ''}
-    </div></div>`;
+    const list = (db().notifications || [])
+      .filter((n) => n.userId === user.id || n.userId === real())
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const unreadN = list.filter((n) => !n.read).length;
+    setPage('Hộp thư thông báo', `${unreadN > 0 ? `${unreadN} chưa đọc` : 'Đã đọc hết'}`);
+    $('#content').innerHTML = `
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Thông báo của bạn</h2>
+          ${unreadN > 0 ? `<button class="btn btn-ghost btn-sm" id="btnReadAll">Đánh dấu đã đọc hết</button>` : ''}
+        </div>
+        <div class="panel-body" style="padding:0">
+          ${list.length ? list.map((n) => `
+            <div class="notif-item ${n.read ? '' : 'notif-unread'}">
+              <div class="notif-dot"></div>
+              <div class="notif-content">
+                <strong>${esc(n.title)}</strong>
+                <p>${esc(n.body)}</p>
+                <div class="notif-time">${Scoring.fmtDateTime(n.createdAt)}</div>
+              </div>
+            </div>`).join('') : '<div class="empty" style="padding:32px 0">Chưa có thông báo nào</div>'}
+        </div>
+      </div>`;
     const btn = $('#btnReadAll');
     if (btn) btn.onclick = () => {
       Store.update((d) => d.notifications.forEach((n) => { if (n.userId === user.id || n.userId === real()) n.read = true; }));
-      toast('Đã đọc hết'); renderShell(); pageNotifications();
+      toast('Đã đánh dấu đã đọc tất cả'); renderShell(); pageNotifications();
     };
   }
 
@@ -4868,6 +5640,7 @@
     try {
       if (typeof SheetsAPI !== 'undefined' && SheetsAPI.enabled()) {
         try {
+          // Chỉ kéo Sheets nếu cache đã hết hạn (tránh làm chậm mỗi lần mở tab)
           await Store.pullFromSheets();
         } catch (err) {
           console.warn('Sheets pull on boot failed', err);
@@ -4879,3 +5652,4 @@
     }
   })();
 })();
+

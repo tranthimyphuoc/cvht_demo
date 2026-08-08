@@ -13,8 +13,8 @@
   <div class="boot-loader" id="bootLoader" aria-live="polite" aria-busy="true">
     <div class="boot-loader-card">
       <div class="boot-spinner" aria-hidden="true"></div>
-      <strong>Đang tải dữ liệu…</strong>
-      <span>Đồng bộ tài khoản từ Google Sheets</span>
+      <strong id="bootMsg">Đang kiểm tra dữ liệu…</strong>
+      <span id="bootSub">Đồng bộ tài khoản từ Google Sheets (cache 10 phút)</span>
     </div>
   </div>
   <div class="login-page">
@@ -84,12 +84,12 @@
     const loginForm = document.getElementById('loginForm');
     const submitBtn = loginForm.querySelector('button[type="submit"]');
 
-    async function ensureSheetsUsers() {
+    async function ensureSheetsUsers(force = false) {
       if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
       try {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Đang đồng bộ…';
-        await Store.pullFromSheets();
+        submitBtn.textContent = Store.isSheetsCacheFresh() && !force ? 'Đang kiểm tra…' : 'Đang đồng bộ…';
+        await Store.pullFromSheets({ force });
       } catch (err) {
         console.warn('Login sheets pull failed', err);
       } finally {
@@ -108,6 +108,11 @@
 
     (async () => {
       try {
+        const fresh = Store.isSheetsCacheFresh();
+        const msgEl = document.getElementById('bootMsg');
+        const subEl = document.getElementById('bootSub');
+        if (msgEl) msgEl.textContent = fresh ? 'Đang khởi động…' : 'Đang đồng bộ dữ liệu…';
+        if (subEl) subEl.textContent = fresh ? 'Dữ liệu đã được cache, không cần tải lại' : 'Lần đầu hoặc cache hết hạn — kết nối Google Sheets';
         await ensureSheetsUsers();
         if (Store.getSession()) location.href = 'app.html';
       } finally {
