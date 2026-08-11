@@ -75,9 +75,12 @@ function doPost(e) {
   let   headers   = {};
 
   try {
-    // Đọc headers nếu có (Apps Script không expose request headers trực tiếp)
+    // Đọc headers từ query param ?headers={"Authorization":"Bearer ..."}
+    // (GAS không expose HTTP headers tùy chỉnh; frontend truyền qua query param)
     if (e.parameter && e.parameter.headers) {
-      try { headers = JSON.parse(e.parameter.headers); } catch (_) {}
+      try { headers = JSON.parse(decodeURIComponent(e.parameter.headers)); } catch (_) {
+        try { headers = JSON.parse(e.parameter.headers); } catch (__) {}
+      }
     }
 
     // Rate limit
@@ -86,7 +89,7 @@ function doPost(e) {
       return errorResponse('Quá nhiều request. Vui lòng thử lại sau 1 phút.', 429);
     }
 
-    // Parse body
+    // Parse body — hỗ trợ cả application/json và text/plain (tránh CORS preflight)
     let body = {};
     if (e.postData && e.postData.contents) {
       try { body = JSON.parse(e.postData.contents); } catch (_) {
@@ -127,7 +130,9 @@ function doGet(e) {
 
     let headers = {};
     if (e.parameter && e.parameter.headers) {
-      try { headers = JSON.parse(e.parameter.headers); } catch (_) {}
+      try { headers = JSON.parse(decodeURIComponent(e.parameter.headers)); } catch (_) {
+        try { headers = JSON.parse(e.parameter.headers); } catch (__) {}
+      }
     }
 
     const result = _route(path, 'GET', e.parameter || {}, headers, ip);

@@ -71,22 +71,25 @@ const Api = (() => {
     const baseUrl = _baseUrl();
     if (!baseUrl) throw new Error('sheetsWebAppUrl chưa được cấu hình trong APP_CONFIG');
 
-    const headers = { 'Content-Type': 'application/json' };
+    // Xây dựng header info (truyền qua query param vì GAS không đọc được custom HTTP headers)
+    const authHeaders = {};
     if (withAuth) {
       const token = getAccessToken();
-      if (token) headers['Authorization'] = 'Bearer ' + token;
+      if (token) authHeaders['Authorization'] = 'Bearer ' + token;
     }
 
-    // Apps Script không đọc được custom headers trực tiếp
-    // → truyền headers qua query param (base64 encoded để tránh encode issues)
-    const encodedHeaders = encodeURIComponent(JSON.stringify(headers));
-    const url = `${baseUrl}?path=${encodeURIComponent(path)}&headers=${encodedHeaders}`;
+    // Truyền Authorization token qua query param (không phải HTTP header)
+    // → tránh CORS preflight do custom header gây ra
+    const params = new URLSearchParams({ path });
+    if (Object.keys(authHeaders).length > 0) {
+      params.set('headers', JSON.stringify(authHeaders));
+    }
+    const url = `${baseUrl}?${params.toString()}`;
 
     let fetchMethod = 'POST';
     let fetchBody;
 
     if (method === 'GET') {
-      // GET → dùng doGet, không có body
       fetchMethod = 'GET';
       fetchBody   = undefined;
     } else {
@@ -96,15 +99,24 @@ const Api = (() => {
       fetchBody = JSON.stringify(bodyToSend);
     }
 
-    const res  = await fetch(url, {
-      method:      fetchMethod,
-      headers:     method === 'GET' ? {} : { 'Content-Type': 'application/json' },
-      body:        fetchBody,
-      redirect:    'follow',
+    // ⚠️ QUAN TRỌNG — Apps Script & CORS:
+    // 'Content-Type: application/json' kích hoạt CORS preflight (OPTIONS request)
+    // Apps Script không xử lý OPTIONS → fetch bị lỗi network.
+    // Fix: dùng 'text/plain' → "simple request" → không cần preflight → hoạt động đúng.
+    const res = await fetch(url, {
+      method:   fetchMethod,
+      headers:  fetchMethod === 'POST' ? { 'Content-Type': 'text/plain;charset=UTF-8' } : {},
+      body:     fetchBody,
+      redirect: 'follow',
     });
 
-    // Apps Script luôn trả 200 dù có lỗi; lỗi HTTP thật rất hiếm
-    const data = await res.json();
+    // Apps Script luôn trả HTTP 200; lỗi nghiệp vụ nằm trong JSON body
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      throw new Error(`Server trả về phản hồi không hợp lệ (HTTP ${res.status})`);
+    }
 
     // ── Auto-refresh khi 401 ─────────────────────────────────────────────
     if (!data.success && data.status === 401 && !isRetry) {
