@@ -1,0 +1,139 @@
+/**
+ * Config.gs — Cấu hình toàn cục CVHT Hub API
+ *
+ * ⚠️  QUAN TRỌNG: Đổi JWT_SECRET trước khi deploy production!
+ *
+ * Roles trong dự án:
+ *   QLDT         — Quản lý đào tạo (full access)
+ *   CVHT         — Cố vấn học tập
+ *   LOP_TRUONG   — Lớp trưởng (chương trình CN)
+ *   BI_THU       — Bí thư
+ *   LOP_TRUONG_NN — Lớp trưởng (chương trình NN)
+ */
+
+// ─── Cấu hình chính ───────────────────────────────────────────────────────────
+const CONFIG = {
+  // JWT
+  JWT_SECRET: 'cvht_hub_JWT_SECRET_CHANGE_ME_before_deploy_2025!',
+  ACCESS_TOKEN_EXPIRY:  3600,           // 1 giờ (giây)
+  REFRESH_TOKEN_EXPIRY: 7 * 24 * 3600, // 7 ngày (giây)
+
+  // Password
+  PASSWORD_SALT:       'cvht_salt_rikkei_2025',
+  PASSWORD_MIN_LENGTH: 8,
+
+  // Rate limiting
+  MAX_REQUESTS_PER_MINUTE: 30,
+
+  // CORS — thêm domain GitHub Pages của bạn vào đây
+  ALLOWED_ORIGINS: [
+    'https://tranthimyphuoc.github.io',
+    'http://localhost',
+    'http://localhost:3000',
+    'http://127.0.0.1',
+    'http://127.0.0.1:5500',
+    'null',   // khi mở file:// trực tiếp trong browser
+  ],
+
+  // API Key tùy chọn (bỏ trống = không cần)
+  API_KEY: '',
+
+  APP_NAME: 'CVHT Hub',
+};
+
+// ─── Phân quyền theo role ──────────────────────────────────────────────────────
+/**
+ * Mỗi role có một danh sách permissions cụ thể.
+ * Cấu trúc: '<resource>.<action>'
+ */
+const ROLE_PERMISSIONS = {
+  QLDT: [
+    // Dashboard
+    'dashboard.read',
+    // Người dùng
+    'users.read', 'users.create', 'users.update', 'users.delete',
+    // Lớp học
+    'classes.read', 'classes.create', 'classes.update', 'classes.delete',
+    // Sinh viên
+    'students.read', 'students.create', 'students.update', 'students.delete',
+    // Báo cáo
+    'reports.read', 'reports.create', 'reports.update', 'reports.approve', 'reports.delete',
+    // Vào lớp (visit)
+    'visits.read', 'visits.create', 'visits.update',
+    // Escalation (case chuyển QLĐT)
+    'escalations.read', 'escalations.create', 'escalations.resolve', 'escalations.delete',
+    // Khảo sát
+    'surveys.read', 'surveys.create', 'surveys.update', 'surveys.delete',
+    'surveys.answer',
+    // Thông báo
+    'notifications.read', 'notifications.send',
+    // Admin
+    'admin.logs', 'admin.setup',
+  ],
+
+  CVHT: [
+    'dashboard.read',
+    'users.read',
+    'classes.read',
+    'students.read', 'students.update',
+    'reports.read', 'reports.create', 'reports.approve',
+    'visits.read', 'visits.create', 'visits.update',
+    'escalations.read', 'escalations.create',
+    'surveys.read', 'surveys.answer',
+    'notifications.read',
+  ],
+
+  LOP_TRUONG: [
+    'classes.read',
+    'students.read',
+    'reports.read', 'reports.create',
+    'surveys.read', 'surveys.answer',
+    'notifications.read',
+  ],
+
+  BI_THU: [
+    'classes.read',
+    'students.read',
+    'reports.read', 'reports.create',
+    'surveys.read', 'surveys.answer',
+    'notifications.read',
+  ],
+
+  LOP_TRUONG_NN: [
+    'classes.read',
+    'students.read',
+    'reports.read', 'reports.create',
+    'surveys.read', 'surveys.answer',
+    'notifications.read',
+  ],
+};
+
+// ─── Sheet headers ─────────────────────────────────────────────────────────────
+/**
+ * Khai báo header cho tất cả sheet.
+ * Sheet cũ giữ nguyên để không mất data.
+ * Sheet mới thêm vào cuối.
+ */
+const SHEET_HEADERS = {
+  // ── Sheet cũ (giữ nguyên) ──
+  Users:             ['id','email','password','name','primaryRole','campus','initials','phone','active','aliasOf','classId','updatedAt'],
+  Classes:           ['id','code','majorId','subject','subjectCode','campusId','programType','semester','level','note','studentCount','active','cvhtId','ltId','btId','gvName','tgName'],
+  Students:          ['id','classId','name','studentCode','email','phone','gender','status','statusNote','riskReason','riskLevel','enrollStatus','active','statusUpdatedAt','statusUpdatedBy','updatedAt'],
+  Reports:           ['id','classId','reporterId','reportKind','reportType','weekStart','weekEnd','semesterId','subjectCode','subjectName','status','totalScore','isLate','formDataJson','attachmentsJson','summaryNote','activityNote','linkedReportIdsJson','createdAt','submittedAt','reviewedAt','reviewerId','reviewNote','demoTag'],
+  Visits:            ['id','classId','cvhtId','visitDate','observation','createdAt','demoTag'],
+  AtRiskNotes:       ['id','studentId','cvhtId','note','status','createdAt'],
+  Escalations:       ['id','studentId','classId','cvhtId','reason','status','notesJson','resolveNote','resolvedAt','resolvedBy','resolvedByName','createdAt'],
+  RPointEvals:       ['id','classId','ltId','evaluatorId','scoresJson','total','note','createdAt','demoTag'],
+  Notifications:     ['id','userId','title','body','read','createdAt','demoTag'],
+  AssignmentHistory: ['id','classId','semester','role','fromUserId','fromUserName','toUserId','toUserName','changedById','changedByName','reason','at'],
+  RoleHistory:       ['id','userId','userName','fromRole','toRole','classId','changedById','changedByName','reason','at'],
+  AuditLog:          ['id','actorId','actorName','action','entity','entityId','beforeJson','afterJson','at'],
+  Curriculum:        ['id','majorId','cohort','cohortLabel','matchPattern','semestersJson'],
+  LateCounts:        ['key','count'],
+
+  // ── Sheet mới (thêm cho JWT/Auth) ──
+  RefreshTokens: ['id','userId','token','expiredAt','status','createdAt','ip'],
+  Survey:        ['id','title','description','createdBy','status','createdAt','updatedAt'],
+  SurveyAnswer:  ['id','surveyId','userId','answersJson','submittedAt'],
+  Logs:          ['id','time','ip','method','endpoint','userId','role','status','durationMs','userAgent'],
+};

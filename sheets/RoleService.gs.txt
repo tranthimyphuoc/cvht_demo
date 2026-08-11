@@ -1,0 +1,81 @@
+/**
+ * RoleService.gs — Quản lý vai trò và quyền hạn
+ *
+ * Hàm public:
+ *   RoleService.getPermissions(role)        → string[]
+ *   RoleService.hasPermission(role, perm)   → boolean
+ *   RoleService.listRoles()                 → { role, permissions, label }[]
+ *   RoleService.getRoleLabel(role)          → string
+ *   RoleService.isValidRole(role)           → boolean
+ *
+ * Permissions được định nghĩa tập trung trong Config.gs (ROLE_PERMISSIONS).
+ * File này chỉ cung cấp interface truy cập.
+ */
+
+const RoleService = (() => {
+
+  // ── Label hiển thị cho từng role (tiếng Việt) ────────────────────────────
+  const ROLE_LABELS = {
+    QLDT:          'Quản lý đào tạo',
+    CVHT:          'Cố vấn học tập',
+    LOP_TRUONG:    'Lớp trưởng (CN)',
+    BI_THU:        'Bí thư',
+    LOP_TRUONG_NN: 'Lớp trưởng (NN)',
+  };
+
+  /**
+   * Lấy danh sách permissions của một role.
+   * @param {string} role
+   * @returns {string[]}
+   */
+  function getPermissions(role) {
+    return ROLE_PERMISSIONS[role] || [];
+  }
+
+  /**
+   * Kiểm tra role có permission cụ thể không.
+   * QLDT luôn có tất cả quyền (super admin).
+   *
+   * @param {string} role
+   * @param {string} permission - e.g. 'surveys.create'
+   * @returns {boolean}
+   */
+  function hasPermission(role, permission) {
+    if (!role || !permission) return false;
+    const perms = getPermissions(role);
+    return perms.includes(permission);
+  }
+
+  /**
+   * Danh sách tất cả roles với label và permissions.
+   * @returns {{ role: string, label: string, permissions: string[] }[]}
+   */
+  function listRoles() {
+    return Object.keys(ROLE_PERMISSIONS).map(role => ({
+      role,
+      label:       ROLE_LABELS[role] || role,
+      permissions: ROLE_PERMISSIONS[role],
+    }));
+  }
+
+  /**
+   * Lấy label của role.
+   * @param {string} role
+   * @returns {string}
+   */
+  function getRoleLabel(role) {
+    return ROLE_LABELS[role] || role;
+  }
+
+  /**
+   * Kiểm tra role có hợp lệ không.
+   * @param {string} role
+   * @returns {boolean}
+   */
+  function isValidRole(role) {
+    return Object.keys(ROLE_PERMISSIONS).includes(role);
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+  return { getPermissions, hasPermission, listRoles, getRoleLabel, isValidRole };
+})();

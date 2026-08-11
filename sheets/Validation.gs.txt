@@ -1,0 +1,153 @@
+/**
+ * Validation.gs — Validators đầu vào giống Spring Validation
+ *
+ * Hàm public:
+ *   Validation.email(val)          → { valid, error }
+ *   Validation.password(val)       → { valid, error }
+ *   Validation.required(val, name) → { valid, error }
+ *   Validation.username(val)       → { valid, error }
+ *   Validation.request(body, rules) → { valid, errors[] }
+ *
+ * @example
+ *   const v = Validation.request(body, {
+ *     username: ['required', 'username'],
+ *     email:    ['required', 'email'],
+ *     password: ['required', 'password'],
+ *   });
+ *   if (!v.valid) return error400('Validation failed', v.errors);
+ */
+
+const Validation = (() => {
+
+  // ── Regex patterns ─────────────────────────────────────────────────────────
+  const EMAIL_REGEX    = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const USERNAME_REGEX = /^[a-zA-Z0-9_\.]{3,50}$/;
+  const XSS_PATTERNS   = [/<script/i, /javascript:/i, /on\w+\s*=/i, /<iframe/i];
+
+  // ── Single field validators ────────────────────────────────────────────────
+
+  /**
+   * Validate email.
+   */
+  function email(val) {
+    if (!val || typeof val !== 'string') return { valid: false, error: 'Email không được để trống' };
+    if (!EMAIL_REGEX.test(val.trim()))   return { valid: false, error: 'Email không đúng định dạng (vd: user@domain.com)' };
+    return { valid: true };
+  }
+
+  /**
+   * Validate password (tối thiểu 8 ký tự, không rỗng, không có XSS).
+   */
+  function password(val) {
+    if (!val || typeof val !== 'string') return { valid: false, error: 'Mật khẩu không được để trống' };
+    if (val.length < CONFIG.PASSWORD_MIN_LENGTH)
+      return { valid: false, error: `Mật khẩu tối thiểu ${CONFIG.PASSWORD_MIN_LENGTH} ký tự` };
+    if (containsXss_(val)) return { valid: false, error: 'Mật khẩu chứa ký tự không hợp lệ' };
+    return { valid: true };
+  }
+
+  /**
+   * Validate required field (không null, không empty sau trim).
+   */
+  function required(val, fieldName) {
+    const name = fieldName || 'Trường này';
+    if (val === null || val === undefined || val === '')
+      return { valid: false, error: `${name} không được để trống` };
+    if (typeof val === 'string' && !val.trim())
+      return { valid: false, error: `${name} không được để trống` };
+    return { valid: true };
+  }
+
+  /**
+   * Validate username: 3-50 ký tự, chỉ a-z A-Z 0-9 _ .
+   */
+  function username(val) {
+    if (!val || typeof val !== 'string') return { valid: false, error: 'Username không được để trống' };
+    if (!USERNAME_REGEX.test(val.trim()))
+      return { valid: false, error: 'Username 3-50 ký tự, chỉ gồm a-z, A-Z, 0-9, _ và dấu chấm' };
+    return { valid: true };
+  }
+
+  /**
+   * Validate số nguyên dương.
+   */
+  function positiveInt(val, fieldName) {
+    const name = fieldName || 'Giá trị';
+    const n = Number(val);
+    if (isNaN(n) || !Number.isInteger(n) || n < 1)
+      return { valid: false, error: `${name} phải là số nguyên dương` };
+    return { valid: true };
+  }
+
+  /**
+   * Validate độ dài chuỗi.
+   */
+  function maxLength(val, max, fieldName) {
+    const name = fieldName || 'Trường';
+    if (typeof val === 'string' && val.length > max)
+      return { valid: false, error: `${name} tối đa ${max} ký tự` };
+    return { valid: true };
+  }
+
+  // ── XSS check ──────────────────────────────────────────────────────────────
+  function containsXss_(val) {
+    if (typeof val !== 'string') return false;
+    return XSS_PATTERNS.some(p => p.test(val));
+  }
+
+  /**
+   * Kiểm tra toàn bộ input không chứa XSS.
+   * @param {object|string} input
+   */
+  function noXss(input) {
+    const str = typeof input === 'object' ? JSON.stringify(input) : String(input || '');
+    if (containsXss_(str)) return { valid: false, error: 'Input chứa nội dung không được phép' };
+    return { valid: true };
+  }
+
+  // ── Batch validator ────────────────────────────────────────────────────────
+  /**
+   * Validate nhiều field theo rules.
+   *
+   * @param {object} body - Request body
+   * @param {object} rules - { fieldName: ['rule1', 'rule2', ...] }
+   *   Các rule hỗ trợ: 'required', 'email', 'password', 'username', 'noxss'
+   *   Hoặc hàm custom: (val) => { valid, error }
+   *
+   * @returns {{ valid: boolean, errors: string[] }}
+   *
+   * @example
+   *   const v = Validation.request(body, {
+   *     username: ['required', 'username'],
+   *     email:    ['required', 'email'],
+   *     password: ['required', 'password'],
+   *   });
+   */
+  function request(body, rules) {
+    const errors = [];
+    Object.keys(rules).forEach(field => {
+      const val  = body ? body[field] : undefined;
+      const ruleList = rules[field];
+      ruleList.forEach(rule => {
+        let result;
+        if (typeof rule === 'function') {
+          result = rule(val);
+        } else {
+          switch (rule) {
+            case 'required': result = required(val, field); break;
+            case 'email':    result = email(val);           break;
+            case 'password': result = password(val);        break;
+            case 'username': result = username(val);        break;
+            case 'noxss':    result = noXss(val);           break;
+            default:         result = { valid: true };
+          }
+        }
+        if (!result.valid) errors.push(`[${field}] ${result.error}`);
+      });
+    });
+    return { valid: errors.length === 0, errors };
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+  return { email, password, required, username, positiveInt, maxLength, noXss, request };
+})();

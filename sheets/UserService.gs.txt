@@ -1,0 +1,246 @@
+/**
+ * UserService.gs — Quản lý người dùng
+ *
+ * Hàm public:
+ *   UserService.findByEmail(email)         → user | null
+ *   UserService.findByUsername(username)   → user | null  (username = email trong hệ thống)
+ *   UserService.findById(id)               → user | null
+ *   UserService.list(filters)             → user[]
+ *   UserService.create(data)              → user
+ *   UserService.update(id, data)          → user | null
+ *   UserService.deactivate(id)            → boolean
+ *   UserService.hashPassword(plaintext)   → hex string
+ *   UserService.checkPassword(plain,hash) → boolean
+ *   UserService.migratePasswords()        → { migrated, skipped }
+ *   UserService.toPublic(user)            → user (bỏ password)
+ *
+ * Lưu ý: Sheet "Users" đã có sẵn data — không xóa, chỉ append/upsert.
+ */
+
+const UserService = (() => {
+
+  const SHEET = 'Users';
+
+  // ═══════════════════════════════════════════════════════════════
+  // PASSWORD HASHING (SHA-256 + salt)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Hash password bằng SHA-256 với salt.
+   * Apps Script trả byte[] signed (-128..127) → chuyển về hex string.
+   *
+   * @param {string} plaintext
+   * @returns {string} 64-char hex string
+   */
+  function hashPassword(plaintext) {
+    const saltedInput = CONFIG.PASSWORD_SALT + ':' + plaintext;
+    const bytes = Utilities.computeDigest(
+      Utilities.DigestAlgorithm.SHA_256,
+      saltedInput,
+      Utilities.Charset.UTF_8
+    );
+    return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+  }
+
+  /**
+   * So sánh mật khẩu plaintext với hash đã lưu.
+   * Hỗ trợ backward compat: nếu stored là plaintext (migration chưa xong) → so sánh trực tiếp.
+   *
+   * @param {string} plaintext
+   * @param {string} storedHash
+   * @returns {boolean}
+   */
+  function checkPassword(plaintext, storedHash) {
+    if (!plaintext || !storedHash) return false;
+    // Nếu stored là 64-char hex → là SHA-256 hash
+    if (/^[a-f0-9]{64}$/.test(storedHash)) {
+      return hashPassword(plaintext) === storedHash;
+    }
+    // Backward compat: plaintext '123456' trong demo data
+    return plaintext === storedHash;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FIND
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Tìm user theo email.
+   * @param {string} email
+   * @returns {object|null}
+   */
+  function findByEmail(email) {
+    if (!email) return null;
+    return findOne_(SHEET, 'email', email.trim().toLowerCase()) || null;
+  }
+
+  /**
+   * Tìm user theo username (= email trong hệ thống này).
+   * @param {string} username
+   * @returns {object|null}
+   */
+  function findByUsername(username) {
+    return findByEmail(username);
+  }
+
+  /**
+   * Tìm user theo id.
+   * @param {string} id
+   * @returns {object|null}
+   */
+  function findById(id) {
+    if (!id) return null;
+    return findOne_(SHEET, 'id', id) || null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LIST
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Lấy danh sách user với filter tuỳ chọn.
+   * @param {{ role?: string, campus?: string, active?: boolean }} [filters]
+   * @returns {object[]} Danh sách user (bỏ field password)
+   */
+  function list(filters) {
+    let users = sheetToObjects_(SHEET);
+    if (filters) {
+      if (filters.role)   users = users.filter(u => u.primaryRole === filters.role);
+      if (filters.campus) users = users.filter(u => u.campus === filters.campus);
+      if (filters.active !== undefined)
+        users = users.filter(u => String(u.active) !== 'false');
+    }
+    return users.map(toPublic);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CREATE
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Tạo user mới.
+   * @param {{ email, name, password, primaryRole, campus, initials, phone }} data
+   * @returns {object} User đã tạo (không có password)
+   * @throws {Error} nếu email đã tồn tại
+   */
+  function create(data) {
+    if (!data.email) throw new Error('Email bắt buộc');
+    const existing = findByEmail(data.email);
+    if (existing) throw new Error('Email đã tồn tại');
+
+    const now  = new Date().toISOString();
+    const user = {
+      id:          generateId_('u'),
+      email:       data.email.trim().toLowerCase(),
+      password:    hashPassword(data.password || '123456'),
+      name:        data.name     || '',
+      primaryRole: data.primaryRole || 'LOP_TRUONG',
+      campus:      data.campus   || '',
+      initials:    data.initials || _makeInitials(data.name || ''),
+      phone:       data.phone    || '',
+      active:      true,
+      aliasOf:     data.aliasOf  || '',
+      classId:     data.classId  || '',
+      updatedAt:   now,
+    };
+    appendObject_(SHEET, user);
+    return toPublic(user);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // UPDATE
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Cập nhật user.
+   * @param {string} id
+   * @param {object} data - Chỉ truyền fields cần thay đổi
+   * @returns {object|null}
+   */
+  function update(id, data) {
+    const users = sheetToObjects_(SHEET);
+    const idx   = users.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+
+    const updated = Object.assign({}, users[idx]);
+    // Cho phép cập nhật các field này
+    const allowed = ['name','phone','campus','initials','primaryRole','active','classId','aliasOf'];
+    allowed.forEach(f => { if (data[f] !== undefined) updated[f] = data[f]; });
+    // Đổi mật khẩu riêng
+    if (data.password) updated.password = hashPassword(data.password);
+    updated.updatedAt = new Date().toISOString();
+
+    users[idx] = updated;
+    writeObjects_(SHEET, users);
+    return toPublic(updated);
+  }
+
+  /**
+   * Vô hiệu hóa user (soft delete).
+   * @param {string} id
+   * @returns {boolean}
+   */
+  function deactivate(id) {
+    const result = update(id, { active: false });
+    return result !== null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // MIGRATION
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Chạy 1 lần để hash tất cả password plaintext đang có trong sheet Users.
+   * An toàn: chỉ hash những password chưa phải SHA-256 hex 64 chars.
+   *
+   * Cách dùng: Chạy trực tiếp trong Apps Script Editor (Run → migratePasswords)
+   *
+   * @returns {{ migrated: number, skipped: number }}
+   */
+  function migratePasswords() {
+    const users    = sheetToObjects_(SHEET);
+    let migrated = 0;
+    let skipped  = 0;
+    users.forEach(u => {
+      if (!u.password || /^[a-f0-9]{64}$/.test(u.password)) {
+        skipped++;
+      } else {
+        u.password = hashPassword(u.password);
+        migrated++;
+      }
+    });
+    if (migrated > 0) writeObjects_(SHEET, users);
+    console.log(`migratePasswords: migrated=${migrated}, skipped=${skipped}`);
+    return { migrated, skipped };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Trả về user object không có password.
+   * @param {object} user
+   */
+  function toPublic(user) {
+    if (!user) return null;
+    const { password, ...rest } = user; // eslint-disable-line no-unused-vars
+    // Nếu GAS không hỗ trợ rest operator, dùng cách thủ công:
+    const pub = Object.assign({}, user);
+    delete pub.password;
+    return pub;
+  }
+
+  /** Tạo initials từ tên đầy đủ. */
+  function _makeInitials(name) {
+    return name.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3);
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+  return {
+    findByEmail, findByUsername, findById,
+    list, create, update, deactivate,
+    hashPassword, checkPassword,
+    migratePasswords, toPublic,
+  };
+})();

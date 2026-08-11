@@ -1,136 +1,570 @@
 /**
- * Google Apps Script — dán TOÀN BỘ file này vào Extensions → Apps Script
+ * Code.gs — Entry point chính của CVHT Hub API
  *
- * Lần đầu: chạy hàm setupSheets() một lần (Run) để tạo đủ tab + header.
- * Deploy: Deploy → New deployment → Web app
- *   Execute as: Me
- *   Who has access: Anyone
- * Copy URL → js/config.js → sheetsWebAppUrl, mode: 'sheets'
+ * Đây là router tổng:
+ *  - Backward compat: hỗ trợ cả action cũ (pullAll, push, append, setup)
+ *  - REST API mới: routing theo ?path=/xxx và HTTP method
+ *
+ * Cách deploy:
+ *  1. Tạo Apps Script Project → Extensions → Apps Script
+ *  2. Tạo đủ file: Code.gs, Config.gs, Utils.gs, JwtService.gs,
+ *     Validation.gs, UserService.gs, RoleService.gs, AuthService.gs,
+ *     Middleware.gs, SurveyService.gs
+ *  3. Paste nội dung từng file .gs.txt vào file tương ứng
+ *  4. Chạy setupAll() để tạo sheets mới (không xóa sheet cũ)
+ *  5. Chạy migratePasswords() để hash password hiện có
+ *  6. Deploy → New Deployment → Web app → Execute as: Me → Anyone
+ *  7. Copy URL → js/config.js → sheetsWebAppUrl
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * FLOW XỬ LÝ MỖI REQUEST
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *  doPost(e) / doGet(e)
+ *    ↓
+ *  Rate limit check (theo IP)
+ *    ↓
+ *  Origin check
+ *    ↓
+ *  Parse request (path, method, body, headers)
+ *    ↓
+ *  Route → Handler function
+ *    ↓
+ *  Middleware.authenticate → Middleware.authorize
+ *    ↓
+ *  Service layer (AuthService / UserService / SurveyService)
+ *    ↓
+ *  Log → Response
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * ROUTES
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *  POST ?path=/auth/login        AuthService.login
+ *  POST ?path=/auth/register     AuthService.register
+ *  POST ?path=/auth/logout       AuthService.logout
+ *  POST ?path=/auth/refresh      AuthService.refresh
+ *
+ *  GET  ?path=/users             UserService.list       [users.read]
+ *  GET  ?path=/users/{id}        UserService.findById   [users.read]
+ *  POST ?path=/users             UserService.create     [users.create]
+ *  PUT  ?path=/users/{id}        UserService.update     [users.update]
+ *  DELETE ?path=/users/{id}      UserService.deactivate [users.delete]
+ *
+ *  GET  ?path=/surveys           SurveyService.list     [surveys.read]
+ *  GET  ?path=/surveys/{id}      SurveyService.findById [surveys.read]
+ *  POST ?path=/surveys           SurveyService.create   [surveys.create]
+ *  PUT  ?path=/surveys/{id}      SurveyService.update   [surveys.update]
+ *  DELETE ?path=/surveys/{id}    SurveyService.remove   [surveys.delete]
+ *  POST ?path=/surveys/{id}/answer SurveyService.submitAnswer [surveys.answer]
+ *
+ *  GET  ?path=/roles             RoleService.listRoles  [admin.logs]
+ *  GET  ?path=/me                (profile từ token)
+ *
+ *  GET  ?path=/health            Không cần auth
  */
 
-var SHEET_HEADERS = {
-  Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
-  Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
-  Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'gender', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'active', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
-  Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
-  Visits: ['id', 'classId', 'cvhtId', 'visitDate', 'observation', 'createdAt', 'demoTag'],
-  AtRiskNotes: ['id', 'studentId', 'cvhtId', 'note', 'status', 'createdAt'],
-  Escalations: ['id', 'studentId', 'classId', 'cvhtId', 'reason', 'status', 'notesJson', 'resolveNote', 'resolvedAt', 'resolvedBy', 'resolvedByName', 'createdAt'],
-  RPointEvals: ['id', 'classId', 'ltId', 'evaluatorId', 'scoresJson', 'total', 'note', 'createdAt', 'demoTag'],
-  Notifications: ['id', 'userId', 'title', 'body', 'read', 'createdAt', 'demoTag'],
-  AssignmentHistory: ['id', 'classId', 'semester', 'role', 'fromUserId', 'fromUserName', 'toUserId', 'toUserName', 'changedById', 'changedByName', 'reason', 'at'],
-  RoleHistory: ['id', 'userId', 'userName', 'fromRole', 'toRole', 'classId', 'changedById', 'changedByName', 'reason', 'at'],
-  AuditLog: ['id', 'actorId', 'actorName', 'action', 'entity', 'entityId', 'beforeJson', 'afterJson', 'at'],
-  Curriculum: ['id', 'majorId', 'cohort', 'cohortLabel', 'matchPattern', 'semestersJson'],
-  LateCounts: ['key', 'count'],
-};
-
-/** Chạy 1 lần trong editor Apps Script để tạo đủ tab */
-function setupSheets() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  Object.keys(SHEET_HEADERS).forEach(function (name) {
-    var sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name);
-    var headers = SHEET_HEADERS[name];
-    sh.clear();
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sh.setFrozenRows(1);
-  });
-  // Xóa Sheet1 mặc định nếu còn trống
-  var def = ss.getSheetByName('Sheet1');
-  if (def && ss.getSheets().length > 1) {
-    try { ss.deleteSheet(def); } catch (e) { /* ignore */ }
-  }
-}
+// ══════════════════════════════════════════════════════════════════════
+// ENTRY POINTS
+// ══════════════════════════════════════════════════════════════════════
 
 function doPost(e) {
+  const startTime = Date.now();
+  const ip        = getClientIp_(e.parameter || {});
+  let   path      = (e.parameter && e.parameter.path) || '/';
+  let   headers   = {};
+
   try {
-    var body = JSON.parse(e.postData.contents);
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var action = body.action;
-
-    // Optional: if (body.apiKey !== 'YOUR_KEY') return json_({ error: 'Unauthorized' });
-
-    if (action === 'setup') {
-      setupSheets();
-      return json_({ ok: true, sheets: Object.keys(SHEET_HEADERS) });
+    // Đọc headers nếu có (Apps Script không expose request headers trực tiếp)
+    if (e.parameter && e.parameter.headers) {
+      try { headers = JSON.parse(e.parameter.headers); } catch (_) {}
     }
 
-    if (action === 'pullAll') {
-      var out = {};
-      Object.keys(SHEET_HEADERS).forEach(function (name) {
-        out[name] = sheetToObjects_(ss.getSheetByName(name));
-      });
-      return json_(out);
+    // Rate limit
+    if (isRateLimited_(ip)) {
+      _log({ ip, method: 'POST', endpoint: path, status: 429, durationMs: Date.now() - startTime, headers });
+      return errorResponse('Quá nhiều request. Vui lòng thử lại sau 1 phút.', 429);
     }
 
-    if (action === 'push') {
-      var sh = ss.getSheetByName(body.sheet);
-      if (!sh) return json_({ error: 'Sheet not found: ' + body.sheet });
-      var headers = body.headers && body.headers.length
-        ? body.headers
-        : (SHEET_HEADERS[body.sheet] || Object.keys((body.rows && body.rows[0]) || { id: '' }));
-      writeObjects_(sh, body.rows || [], headers);
-      return json_({ ok: true, count: (body.rows || []).length });
+    // Parse body
+    let body = {};
+    if (e.postData && e.postData.contents) {
+      try { body = JSON.parse(e.postData.contents); } catch (_) {
+        return error400('Request body phải là JSON hợp lệ');
+      }
     }
 
-    if (action === 'append') {
-      var shA = ss.getSheetByName(body.sheet);
-      if (!shA) return json_({ error: 'Sheet not found' });
-      appendObject_(shA, body.row, SHEET_HEADERS[body.sheet]);
-      return json_({ ok: true });
+    // ── Backward compat: action-based (dành cho frontend cũ) ──────────────
+    if (body.action) {
+      return _handleLegacyAction(body, e);
     }
 
-    return json_({ error: 'Unknown action' });
+    // ── REST routing ──────────────────────────────────────────────────────
+    // Hỗ trợ method override cho PUT/DELETE qua body._method
+    const method = (body._method || 'POST').toUpperCase();
+
+    const result = _route(path, method, body, headers, ip);
+    _log({ ip, method, endpoint: path, status: result.status || 200, durationMs: Date.now() - startTime, headers, principal: _tryDecode(headers) });
+    return result;
+
   } catch (err) {
-    return json_({ error: String(err) });
+    console.error('doPost error:', err);
+    _log({ ip, method: 'POST', endpoint: path, status: 500, durationMs: Date.now() - startTime });
+    return error500('Lỗi server: ' + (err.message || String(err)));
   }
 }
 
-function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+function doGet(e) {
+  const startTime = Date.now();
+  const ip        = getClientIp_(e.parameter || {});
+  const path      = (e.parameter && e.parameter.path) || '/health';
+
+  try {
+    // Rate limit
+    if (isRateLimited_(ip)) {
+      return errorResponse('Quá nhiều request.', 429);
+    }
+
+    let headers = {};
+    if (e.parameter && e.parameter.headers) {
+      try { headers = JSON.parse(e.parameter.headers); } catch (_) {}
+    }
+
+    const result = _route(path, 'GET', e.parameter || {}, headers, ip);
+    _log({ ip, method: 'GET', endpoint: path, status: result.status || 200, durationMs: Date.now() - startTime, headers, principal: _tryDecode(headers) });
+    return result;
+
+  } catch (err) {
+    console.error('doGet error:', err);
+    return error500('Lỗi server: ' + (err.message || String(err)));
+  }
 }
 
-function sheetToObjects_(sh) {
-  if (!sh) return [];
-  var values = sh.getDataRange().getValues();
-  if (values.length < 2) return [];
-  var headers = values[0].map(String);
-  return values.slice(1).filter(function (r) {
-    return r.some(function (c) { return c !== ''; });
-  }).map(function (row) {
-    var o = {};
-    headers.forEach(function (h, i) { o[h] = row[i]; });
-    return o;
+// ══════════════════════════════════════════════════════════════════════
+// MAIN ROUTER
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Định tuyến request theo path + method.
+ * @param {string} path   - e.g. '/auth/login' hoặc '/users/u_abc123'
+ * @param {string} method - GET | POST | PUT | DELETE
+ * @param {object} body   - Request body (đã parse)
+ * @param {object} headers
+ * @param {string} ip
+ */
+function _route(path, method, body, headers, ip) {
+  // Chuẩn hóa path
+  const clean  = (path || '/').replace(/\/$/, '') || '/';
+  const parts  = clean.replace(/^\//, '').split('/');
+  const res    = parts[0];  // resource: 'auth', 'users', 'surveys', ...
+  const id     = parts[1];  // ID hoặc sub-resource
+  const sub    = parts[2];  // sub-action: 'answer'
+
+  // Sanitize body inputs
+  const safeBody = sanitizeInput_(body || {});
+
+  try {
+    switch (res) {
+
+      // ── /health ──────────────────────────────────────────────────────────
+      case '':
+      case 'health':
+        return successResponse({
+          app:     CONFIG.APP_NAME,
+          version: '2.0.0',
+          status:  'OK',
+          time:    new Date().toISOString(),
+        }, 'CVHT Hub API is running');
+
+      // ── /auth ─────────────────────────────────────────────────────────────
+      case 'auth':
+        return _routeAuth(id, method, safeBody, headers, ip);
+
+      // ── /me ───────────────────────────────────────────────────────────────
+      case 'me':
+        return _handleMe(method, headers);
+
+      // ── /users ────────────────────────────────────────────────────────────
+      case 'users':
+        return _routeUsers(id, method, safeBody, headers);
+
+      // ── /surveys ──────────────────────────────────────────────────────────
+      case 'surveys':
+        return _routeSurveys(id, sub, method, safeBody, headers);
+
+      // ── /roles ────────────────────────────────────────────────────────────
+      case 'roles':
+        return _routeRoles(method, headers);
+
+      // ── /admin ────────────────────────────────────────────────────────────
+      case 'admin':
+        return _routeAdmin(id, method, safeBody, headers);
+
+      default:
+        return error404(`Route không tồn tại: ${method} ${path}`);
+    }
+  } catch (err) {
+    const code = err.code || 500;
+    if (code === 401) return error401(err.message);
+    if (code === 403) return error403(err.message);
+    if (code === 404) return error404(err.message);
+    console.error('Route error:', err);
+    return error500(err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// AUTH ROUTES
+// ══════════════════════════════════════════════════════════════════════
+
+function _routeAuth(action, method, body, headers, ip) {
+  switch (action) {
+
+    // POST /auth/login
+    case 'login': {
+      const v = Validation.request(body, {
+        username: ['required'],
+        password: ['required'],
+      });
+      if (!v.valid) return error400('Validation thất bại', v.errors);
+
+      const result = AuthService.login(body.username, body.password, ip);
+      return successResponse(result, 'Đăng nhập thành công', 200);
+    }
+
+    // POST /auth/register
+    case 'register': {
+      const v = Validation.request(body, {
+        email:    ['required', 'email'],
+        password: ['required', 'password'],
+        name:     ['required'],
+      });
+      if (!v.valid) return error400('Validation thất bại', v.errors);
+
+      const result = AuthService.register(body, ip);
+      return successResponse(result, 'Đăng ký thành công', 201);
+    }
+
+    // POST /auth/refresh
+    case 'refresh': {
+      if (!body.refreshToken) return error400('Thiếu refreshToken');
+      const result = AuthService.refresh(body.refreshToken, ip);
+      return successResponse(result, 'Refresh token thành công');
+    }
+
+    // POST /auth/logout
+    case 'logout': {
+      if (!body.refreshToken) return error400('Thiếu refreshToken');
+      AuthService.logout(body.refreshToken);
+      return successResponse(null, 'Đăng xuất thành công');
+    }
+
+    default:
+      return error404(`Auth route không tồn tại: /auth/${action}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// USER ROUTES
+// ══════════════════════════════════════════════════════════════════════
+
+function _routeUsers(id, method, body, headers) {
+  switch (method) {
+
+    case 'GET': {
+      if (id) {
+        // GET /users/{id}
+        const principal = Middleware.requirePermission(headers, 'users.read');
+        const user = UserService.findById(id);
+        if (!user) return error404('Không tìm thấy user: ' + id);
+        return successResponse(UserService.toPublic(user));
+      }
+      // GET /users
+      const principal = Middleware.requirePermission(headers, 'users.read');
+      const filters   = {};
+      if (body.role)   filters.role   = body.role;
+      if (body.campus) filters.campus = body.campus;
+      return successResponse(UserService.list(filters));
+    }
+
+    case 'POST': {
+      // POST /users (tạo user — QLDT only)
+      const principal = Middleware.requirePermission(headers, 'users.create');
+      const v = Validation.request(body, {
+        email:    ['required', 'email'],
+        name:     ['required'],
+        password: ['required', 'password'],
+      });
+      if (!v.valid) return error400('Validation thất bại', v.errors);
+      const user = UserService.create(body);
+      return successResponse(user, 'Tạo user thành công', 201);
+    }
+
+    case 'PUT': {
+      // PUT /users/{id}
+      if (!id) return error400('Thiếu user ID');
+      const principal = Middleware.requirePermission(headers, 'users.update');
+      const user = UserService.update(id, body);
+      if (!user) return error404('Không tìm thấy user: ' + id);
+      return successResponse(user, 'Cập nhật thành công');
+    }
+
+    case 'DELETE': {
+      // DELETE /users/{id}
+      if (!id) return error400('Thiếu user ID');
+      const principal = Middleware.requirePermission(headers, 'users.delete');
+      const ok = UserService.deactivate(id);
+      if (!ok) return error404('Không tìm thấy user: ' + id);
+      return successResponse(null, 'Vô hiệu hóa user thành công');
+    }
+
+    default:
+      return error400('Method không hỗ trợ: ' + method);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SURVEY ROUTES
+// ══════════════════════════════════════════════════════════════════════
+
+function _routeSurveys(id, sub, method, body, headers) {
+  // POST /surveys/{id}/answer
+  if (id && sub === 'answer' && method === 'POST') {
+    const principal = Middleware.requirePermission(headers, 'surveys.answer');
+    const answer = SurveyService.submitAnswer(id, body.answers || body, principal);
+    return successResponse(answer, 'Nộp câu trả lời thành công', 201);
+  }
+
+  // GET /surveys/{id}/answers
+  if (id && sub === 'answers' && method === 'GET') {
+    const principal = Middleware.requirePermission(headers, 'surveys.read');
+    return successResponse(SurveyService.getAnswers(id));
+  }
+
+  switch (method) {
+    case 'GET': {
+      const principal = Middleware.requirePermission(headers, 'surveys.read');
+      if (id) {
+        const s = SurveyService.findById(id);
+        return s ? successResponse(s) : error404('Không tìm thấy survey: ' + id);
+      }
+      return successResponse(SurveyService.list());
+    }
+    case 'POST': {
+      const principal = Middleware.requirePermission(headers, 'surveys.create');
+      const survey    = SurveyService.create(body, principal);
+      return successResponse(survey, 'Tạo khảo sát thành công', 201);
+    }
+    case 'PUT': {
+      if (!id) return error400('Thiếu survey ID');
+      const principal = Middleware.requirePermission(headers, 'surveys.update');
+      const updated   = SurveyService.update(id, body, principal);
+      return updated ? successResponse(updated, 'Cập nhật thành công') : error404('Không tìm thấy: ' + id);
+    }
+    case 'DELETE': {
+      if (!id) return error400('Thiếu survey ID');
+      const principal = Middleware.requirePermission(headers, 'surveys.delete');
+      const ok = SurveyService.remove(id, principal);
+      return ok ? successResponse(null, 'Xóa thành công') : error404('Không tìm thấy: ' + id);
+    }
+    default:
+      return error400('Method không hỗ trợ');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ROLES ROUTE
+// ══════════════════════════════════════════════════════════════════════
+
+function _routeRoles(method, headers) {
+  if (method !== 'GET') return error400('Method không hỗ trợ');
+  const principal = Middleware.requireAuth(headers);
+  return successResponse(RoleService.listRoles());
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ME ROUTE (profile)
+// ══════════════════════════════════════════════════════════════════════
+
+function _handleMe(method, headers) {
+  if (method !== 'GET') return error400('Method không hỗ trợ');
+  const principal = Middleware.requireAuth(headers);
+  const user = UserService.findById(principal.userId);
+  return successResponse(UserService.toPublic(user));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ADMIN ROUTES (chỉ QLDT)
+// ══════════════════════════════════════════════════════════════════════
+
+function _routeAdmin(action, method, body, headers) {
+  const principal = Middleware.requirePermission(headers, 'admin.setup');
+
+  switch (action) {
+    case 'setup':
+      setupAll();
+      return successResponse(null, 'Setup sheets hoàn thành');
+
+    case 'migrate-passwords': {
+      const result = UserService.migratePasswords();
+      return successResponse(result, `Hash ${result.migrated} mật khẩu xong`);
+    }
+
+    case 'logs': {
+      const logs = sheetToObjects_('Logs');
+      return successResponse(logs.slice(-200).reverse(), `${logs.length} log entries`);
+    }
+
+    default:
+      return error404('Admin action không tồn tại: ' + action);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// BACKWARD COMPAT (Action-based — dành cho frontend cũ)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Xử lý các action cũ: pullAll, push, append, setup.
+ * Đảm bảo frontend hiện tại không bị break.
+ */
+function _handleLegacyAction(body, e) {
+  const action = body.action;
+  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (action === 'setup') {
+    setupAll();
+    return jsonResponse_({ ok: true, sheets: Object.keys(SHEET_HEADERS) });
+  }
+
+  if (action === 'pullAll') {
+    const out = {};
+    Object.keys(SHEET_HEADERS).forEach(name => {
+      const sh = ss.getSheetByName(name);
+      out[name] = sh ? sheetToObjects_(name) : [];
+    });
+    return jsonResponse_(out);
+  }
+
+  if (action === 'push') {
+    const sh = ss.getSheetByName(body.sheet);
+    if (!sh) return jsonResponse_({ error: 'Sheet not found: ' + body.sheet });
+    const headers = body.headers && body.headers.length
+      ? body.headers
+      : (SHEET_HEADERS[body.sheet] || Object.keys((body.rows && body.rows[0]) || { id: '' }));
+    writeObjects_(body.sheet, body.rows || [], headers);
+    return jsonResponse_({ ok: true, count: (body.rows || []).length });
+  }
+
+  if (action === 'append') {
+    const sh = ss.getSheetByName(body.sheet);
+    if (!sh) return jsonResponse_({ error: 'Sheet not found' });
+    appendObject_(body.sheet, body.row);
+    return jsonResponse_({ ok: true });
+  }
+
+  return jsonResponse_({ error: 'Unknown action: ' + action });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// TOP-LEVEL RUNNER FUNCTIONS (hiện trong dropdown Apps Script)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Chạy để hash tất cả password plaintext trong sheet Users → SHA-256.
+ * An toàn: password đã hash (64 hex chars) sẽ được bỏ qua.
+ * Chạy 1 lần sau khi paste code xong.
+ */
+function migratePasswords() {
+  const result = UserService.migratePasswords();
+  console.log('✅ migratePasswords xong:', JSON.stringify(result));
+  // result = { migrated: N, skipped: M }
+}
+
+/**
+ * Test nhanh JWT — kiểm tra JwtService hoạt động đúng.
+ */
+function testJwt() {
+  const token = JwtService.generateToken({ userId: 'u_test', role: 'CVHT', permissions: [] });
+  console.log('Token:', token);
+  const payload = JwtService.verifyToken(token);
+  console.log('Verified payload:', JSON.stringify(payload));
+  console.log('isExpired:', JwtService.isExpired(token));
+}
+
+/**
+ * Test login nhanh — kiểm tra AuthService.login hoạt động.
+ * Đổi email/password cho phù hợp.
+ */
+function testLogin() {
+  try {
+    const result = AuthService.login('admin@rikkei.edu', '123456', '127.0.0.1');
+    console.log('✅ Login OK:', result.user.name, '| Role:', result.user.primaryRole);
+    console.log('Access Token (50 ký tự đầu):', result.accessToken.slice(0, 50) + '...');
+  } catch (e) {
+    console.error('❌ Login thất bại:', e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SETUP — Tạo sheet mới (không xóa sheet cũ đang có data)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Chạy 1 lần để tạo tất cả sheets.
+ * Sheet đã có sẽ KHÔNG bị xóa/clear — chỉ tạo sheet chưa có.
+ * Sheet mới (RefreshTokens, Survey, SurveyAnswer, Logs) sẽ được tạo.
+ *
+ * Cách chạy: Apps Script Editor → Run → setupAll
+ */
+function setupAll() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SHEET_HEADERS).forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      // Chỉ tạo sheet CHƯA tồn tại
+      sh = ss.insertSheet(name);
+      const hdrs = SHEET_HEADERS[name];
+      sh.getRange(1, 1, 1, hdrs.length).setValues([hdrs]);
+      sh.setFrozenRows(1);
+      console.log('Created sheet:', name);
+    } else {
+      console.log('Sheet already exists (skip):', name);
+    }
   });
+  // Xóa Sheet1 mặc định nếu trống
+  const def = ss.getSheetByName('Sheet1');
+  if (def && ss.getSheets().length > 1) {
+    try { ss.deleteSheet(def); } catch (_) {}
+  }
 }
 
-function writeObjects_(sh, rows, headers) {
-  sh.clearContents();
-  if (!headers || !headers.length) {
-    if (!rows.length) return;
-    headers = Object.keys(rows[0]);
-  }
-  var data = [headers];
-  rows.forEach(function (r) {
-    data.push(headers.map(function (h) {
-      var v = r[h];
-      return v == null ? '' : v;
-    }));
-  });
-  sh.getRange(1, 1, data.length, headers.length).setValues(data);
-  sh.setFrozenRows(1);
+// ══════════════════════════════════════════════════════════════════════
+// INTERNAL HELPERS
+// ══════════════════════════════════════════════════════════════════════
+
+/** Ghi log request. */
+function _log(entry) {
+  try {
+    const principal = entry.principal;
+    writeLog_({
+      ip:         entry.ip        || '',
+      method:     entry.method    || '',
+      endpoint:   entry.endpoint  || '',
+      userId:     principal ? principal.userId : '',
+      role:       principal ? principal.role   : '',
+      status:     entry.status    || 200,
+      durationMs: entry.durationMs || 0,
+      userAgent:  (entry.headers && (entry.headers['User-Agent'] || entry.headers['user-agent'])) || '',
+    });
+  } catch (_) {}
 }
 
-function appendObject_(sh, row, fallbackHeaders) {
-  var lastCol = Math.max(sh.getLastColumn(), 1);
-  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  if (!headers.length || !headers[0]) {
-    headers = fallbackHeaders || Object.keys(row || {});
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-  }
-  sh.appendRow(headers.map(function (h) {
-    return row[h] == null ? '' : row[h];
-  }));
+/** Decode JWT từ headers mà không verify (chỉ để lấy info log). */
+function _tryDecode(headers) {
+  try {
+    const auth = headers && (headers['Authorization'] || headers['authorization'] || '');
+    if (!auth.startsWith('Bearer ')) return null;
+    return JwtService.decodeToken(auth.slice(7)).payload;
+  } catch (_) { return null; }
 }

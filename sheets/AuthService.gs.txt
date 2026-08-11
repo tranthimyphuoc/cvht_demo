@@ -1,0 +1,287 @@
+/**
+ * AuthService.gs — Xác thực và quản lý phiên đăng nhập
+ *
+ * Hàm public:
+ *   AuthService.login(username, password, ip)    → { accessToken, refreshToken, expiresIn, user }
+ *   AuthService.register(data, ip)               → { accessToken, refreshToken, expiresIn, user }
+ *   AuthService.refresh(refreshToken, ip)        → { accessToken, expiresIn }
+ *   AuthService.logout(refreshToken)             → boolean
+ *   AuthService.revokeAllTokens(userId)          → number (số token bị thu hồi)
+ *
+ * Các sheet dùng:
+ *   - Users         (đọc/ghi user)
+ *   - RefreshTokens (lưu/kiểm tra/blacklist refresh token)
+ */
+
+const AuthService = (() => {
+
+  const RT_SHEET = 'RefreshTokens';
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOGIN
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Đăng nhập bằng username (email) + password.
+   *
+   * @param {string} username - email của user
+   * @param {string} password - plaintext password
+   * @param {string} [ip]     - IP người dùng (để ghi log)
+   * @returns {{ accessToken, refreshToken, expiresIn, user }}
+   * @throws {Error} nếu sai thông tin hoặc tài khoản bị khóa
+   *
+   * @example
+   *   const result = AuthService.login('cvht@rikkei.edu', '123456', '1.2.3.4');
+   *   // result.accessToken, result.refreshToken, result.user
+   */
+  function login(username, password, ip) {
+    // 1. Tìm user
+    const user = UserService.findByUsername(username);
+    if (!user) throw new Error('Email hoặc mật khẩu không đúng');
+
+    // 2. Kiểm tra active
+    if (String(user.active) === 'false') throw new Error('Tài khoản đã bị vô hiệu hóa');
+
+    // 3. Kiểm tra password
+    if (!UserService.checkPassword(password, user.password)) {
+      throw new Error('Email hoặc mật khẩu không đúng');
+    }
+
+    // 4. Lấy permissions
+    const permissions = RoleService.getPermissions(user.primaryRole);
+
+    // 5. Tạo tokens
+    const payload = {
+      userId:      user.id,
+      username:    user.email,
+      name:        user.name,
+      role:        user.primaryRole,
+      campus:      user.campus || '',
+      permissions,
+    };
+    const accessToken  = JwtService.generateToken(payload);
+    const refreshToken = _createRefreshToken(user.id, ip);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: CONFIG.ACCESS_TOKEN_EXPIRY,
+      user: UserService.toPublic(user),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // REGISTER
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Đăng ký tài khoản mới.
+   *
+   * @param {{ username, email, password, name, primaryRole, campus, phone }} data
+   * @param {string} [ip]
+   * @returns {{ accessToken, refreshToken, expiresIn, user }}
+   * @throws {Error} nếu email đã tồn tại hoặc dữ liệu không hợp lệ
+   *
+   * @example
+   *   const result = AuthService.register({
+   *     email:    'newuser@rikkei.edu',
+   *     password: 'MyPass123',
+   *     name:     'Nguyễn Văn A',
+   *     primaryRole: 'LOP_TRUONG',
+   *   });
+   */
+  function register(data, ip) {
+    // 1. Validate
+    const v = Validation.request(data, {
+      email:    ['required', 'email'],
+      password: ['required', 'password'],
+      name:     ['required'],
+    });
+    if (!v.valid) throw new Error(v.errors.join('; '));
+
+    // 2. Kiểm tra role hợp lệ
+    if (data.primaryRole && !RoleService.isValidRole(data.primaryRole)) {
+      throw new Error(`Role không hợp lệ: ${data.primaryRole}`);
+    }
+
+    // 3. Tạo user
+    const user = UserService.create({
+      email:       data.email,
+      password:    data.password,
+      name:        data.name,
+      primaryRole: data.primaryRole || 'LOP_TRUONG',
+      campus:      data.campus      || '',
+      phone:       data.phone       || '',
+    });
+
+    // 4. Tạo tokens ngay sau khi đăng ký
+    const fullUser    = UserService.findByEmail(data.email);
+    const permissions = RoleService.getPermissions(user.primaryRole);
+    const payload     = {
+      userId:      user.id,
+      username:    user.email,
+      name:        user.name,
+      role:        user.primaryRole,
+      campus:      user.campus || '',
+      permissions,
+    };
+    const accessToken  = JwtService.generateToken(payload);
+    const refreshToken = _createRefreshToken(user.id, ip);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: CONFIG.ACCESS_TOKEN_EXPIRY,
+      user,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // REFRESH TOKEN
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Làm mới Access Token bằng Refresh Token.
+   * Áp dụng Refresh Token Rotation: invalidate token cũ, tạo token mới.
+   *
+   * @param {string} refreshToken
+   * @param {string} [ip]
+   * @returns {{ accessToken, refreshToken, expiresIn }}
+   * @throws {Error} nếu token không hợp lệ hoặc đã hết hạn
+   */
+  function refresh(refreshToken, ip) {
+    // 1. Tìm token trong sheet
+    const stored = _findRefreshToken(refreshToken);
+    if (!stored) throw new Error('Refresh token không hợp lệ');
+
+    // 2. Kiểm tra status (ACTIVE / REVOKED)
+    if (stored.status !== 'ACTIVE') throw new Error('Refresh token đã bị thu hồi');
+
+    // 3. Kiểm tra hết hạn
+    if (new Date(stored.expiredAt) < new Date()) {
+      _revokeRefreshToken(refreshToken);
+      throw new Error('Refresh token đã hết hạn. Vui lòng đăng nhập lại');
+    }
+
+    // 4. Tìm user
+    const user = UserService.findById(stored.userId);
+    if (!user || String(user.active) === 'false') {
+      throw new Error('Tài khoản không tồn tại hoặc đã bị khóa');
+    }
+
+    // 5. Revoke token cũ (Rotation: mỗi refresh tạo token mới)
+    _revokeRefreshToken(refreshToken);
+
+    // 6. Tạo tokens mới
+    const permissions = RoleService.getPermissions(user.primaryRole);
+    const payload     = {
+      userId:   user.id,
+      username: user.email,
+      name:     user.name,
+      role:     user.primaryRole,
+      campus:   user.campus || '',
+      permissions,
+    };
+    const newAccessToken  = JwtService.generateToken(payload);
+    const newRefreshToken = _createRefreshToken(user.id, ip);
+
+    return {
+      accessToken:  newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresIn:    CONFIG.ACCESS_TOKEN_EXPIRY,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOGOUT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Đăng xuất: revoke Refresh Token.
+   *
+   * @param {string} refreshToken
+   * @returns {boolean} true nếu thành công
+   */
+  function logout(refreshToken) {
+    if (!refreshToken) return false;
+    return _revokeRefreshToken(refreshToken);
+  }
+
+  /**
+   * Thu hồi tất cả Refresh Token của một user (force logout all devices).
+   *
+   * @param {string} userId
+   * @returns {number} Số token đã thu hồi
+   */
+  function revokeAllTokens(userId) {
+    const tokens = sheetToObjects_(RT_SHEET);
+    let count    = 0;
+    const updated = tokens.map(t => {
+      if (t.userId === userId && t.status === 'ACTIVE') {
+        count++;
+        return Object.assign({}, t, { status: 'REVOKED' });
+      }
+      return t;
+    });
+    if (count > 0) writeObjects_(RT_SHEET, updated);
+    return count;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIVATE HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Tạo Refresh Token mới và lưu vào sheet.
+   * @param {string} userId
+   * @param {string} [ip]
+   * @returns {string} token string
+   */
+  function _createRefreshToken(userId, ip) {
+    const token     = JwtService.generateRefreshToken();
+    const now       = new Date();
+    const expiredAt = new Date(now.getTime() + CONFIG.REFRESH_TOKEN_EXPIRY * 1000).toISOString();
+
+    appendObject_(RT_SHEET, {
+      id:        generateId_('rt'),
+      userId:    userId,
+      token:     token,
+      expiredAt: expiredAt,
+      status:    'ACTIVE',
+      createdAt: now.toISOString(),
+      ip:        ip || '',
+    });
+    return token;
+  }
+
+  /**
+   * Tìm Refresh Token trong sheet.
+   * @param {string} token
+   * @returns {object|null}
+   */
+  function _findRefreshToken(token) {
+    return findOne_(RT_SHEET, 'token', token);
+  }
+
+  /**
+   * Revoke (đánh dấu REVOKED) 1 Refresh Token.
+   * @param {string} token
+   * @returns {boolean}
+   */
+  function _revokeRefreshToken(token) {
+    const all    = sheetToObjects_(RT_SHEET);
+    let changed  = false;
+    const updated = all.map(t => {
+      if (t.token === token && t.status === 'ACTIVE') {
+        changed = true;
+        return Object.assign({}, t, { status: 'REVOKED' });
+      }
+      return t;
+    });
+    if (changed) writeObjects_(RT_SHEET, updated);
+    return changed;
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+  return { login, register, refresh, logout, revokeAllTokens };
+})();

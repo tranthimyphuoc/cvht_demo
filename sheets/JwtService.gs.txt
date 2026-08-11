@@ -1,0 +1,169 @@
+/**
+ * JwtService.gs — Tự implement JWT HS256
+ *
+ * Google Apps Script không có thư viện JWT built-in.
+ * File này implement đầy đủ JWT theo RFC 7519 với thuật toán HS256.
+ *
+ * Hàm public:
+ *   JwtService.generateToken(payload)   → string token
+ *   JwtService.verifyToken(token)       → payload | null
+ *   JwtService.decodeToken(token)       → { header, payload, valid } (không verify)
+ *   JwtService.isExpired(token)         → boolean
+ *   JwtService.generateRefreshToken()   → string (opaque random token)
+ *
+ * Thuật toán: HS256 (HMAC-SHA256)
+ * Secret Key : CONFIG.JWT_SECRET
+ */
+
+const JwtService = (() => {
+
+  // ── Header cố định cho HS256 ───────────────────────────────────────────────
+  const HEADER = { alg: 'HS256', typ: 'JWT' };
+
+  // ── Tính HMAC-SHA256 signature ─────────────────────────────────────────────
+  /**
+   * Ký dữ liệu với HMAC-SHA256, trả về base64url.
+   * Apps Script trả byte[] dạng signed (-128..127), cần chuyển về unsigned.
+   * @param {string} data
+   * @param {string} secret
+   * @returns {string} base64url signature
+   */
+  function _sign(data, secret) {
+    const sigBytes = Utilities.computeHmacSha256Signature(data, secret, Utilities.Charset.UTF_8);
+    // Chuyển signed bytes → unsigned, rồi base64url encode
+    const unsigned = sigBytes.map(b => (b + 256) % 256);
+    return Utilities.base64Encode(unsigned)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  // ── Build JWT string ───────────────────────────────────────────────────────
+  /**
+   * Tạo JWT token từ payload.
+   * Tự động thêm iat (issued at) và exp (expiration).
+   *
+   * @param {object} payload - { userId, username, role, permissions, ...extra }
+   * @param {number} [expiresIn] - Thời gian hết hạn (giây). Default: CONFIG.ACCESS_TOKEN_EXPIRY
+   * @returns {string} JWT token
+   *
+   * @example
+   *   const token = JwtService.generateToken({ userId: 'u1', role: 'CVHT' });
+   */
+  function generateToken(payload, expiresIn) {
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + (expiresIn || CONFIG.ACCESS_TOKEN_EXPIRY);
+
+    const fullPayload = Object.assign({}, payload, { iat: now, exp });
+
+    const encodedHeader  = base64UrlEncode_(JSON.stringify(HEADER));
+    const encodedPayload = base64UrlEncode_(JSON.stringify(fullPayload));
+    const signingInput   = encodedHeader + '.' + encodedPayload;
+    const signature      = _sign(signingInput, CONFIG.JWT_SECRET);
+
+    return signingInput + '.' + signature;
+  }
+
+  // ── Verify token ───────────────────────────────────────────────────────────
+  /**
+   * Xác minh JWT: kiểm tra chữ ký + thời hạn.
+   *
+   * @param {string} token
+   * @returns {object|null} payload nếu hợp lệ; null nếu sai/hết hạn
+   *
+   * @example
+   *   const user = JwtService.verifyToken(req.headers.Authorization.split(' ')[1]);
+   *   if (!user) return error401('Invalid token');
+   */
+  function verifyToken(token) {
+    if (!token || typeof token !== 'string') return null;
+
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [encodedHeader, encodedPayload, signature] = parts;
+
+    // 1. Kiểm tra chữ ký
+    const expectedSig = _sign(encodedHeader + '.' + encodedPayload, CONFIG.JWT_SECRET);
+    if (signature !== expectedSig) {
+      console.warn('JWT: Invalid signature');
+      return null;
+    }
+
+    // 2. Decode payload
+    let payload;
+    try {
+      payload = JSON.parse(base64UrlDecode_(encodedPayload));
+    } catch (e) {
+      console.warn('JWT: Malformed payload');
+      return null;
+    }
+
+    // 3. Kiểm tra exp
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.warn('JWT: Token expired at', new Date(payload.exp * 1000).toISOString());
+      return null;
+    }
+
+    return payload;
+  }
+
+  // ── Decode (không verify) ──────────────────────────────────────────────────
+  /**
+   * Decode JWT mà không verify chữ ký.
+   * Dùng để đọc thông tin mà không quan tâm tính hợp lệ (e.g. logging).
+   *
+   * @param {string} token
+   * @returns {{ header: object, payload: object, valid: boolean }}
+   */
+  function decodeToken(token) {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return { header: null, payload: null, valid: false };
+      return {
+        header:  JSON.parse(base64UrlDecode_(parts[0])),
+        payload: JSON.parse(base64UrlDecode_(parts[1])),
+        valid:   true,
+      };
+    } catch (e) {
+      return { header: null, payload: null, valid: false };
+    }
+  }
+
+  // ── Check expiry ───────────────────────────────────────────────────────────
+  /**
+   * Kiểm tra token có hết hạn chưa (chỉ check exp, không verify signature).
+   *
+   * @param {string} token
+   * @returns {boolean} true nếu đã hết hạn hoặc không đọc được
+   */
+  function isExpired(token) {
+    const { payload, valid } = decodeToken(token);
+    if (!valid || !payload) return true;
+    const now = Math.floor(Date.now() / 1000);
+    return !payload.exp || payload.exp < now;
+  }
+
+  // ── Refresh Token (opaque) ─────────────────────────────────────────────────
+  /**
+   * Tạo Refresh Token ngẫu nhiên dạng opaque string (không phải JWT).
+   * Token này được lưu trong sheet RefreshTokens để kiểm tra và blacklist.
+   *
+   * @returns {string} 64-char hex string
+   */
+  function generateRefreshToken() {
+    const bytes = [];
+    for (let i = 0; i < 32; i++) {
+      bytes.push(Math.floor(Math.random() * 256));
+    }
+    return Utilities.base64Encode(bytes)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+      .slice(0, 64);
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+  return { generateToken, verifyToken, decodeToken, isExpired, generateRefreshToken };
+})();

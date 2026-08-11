@@ -1,0 +1,168 @@
+/**
+ * Middleware.gs — Authentication & Authorization (giống Spring Security Filter)
+ *
+ * Hàm public:
+ *   Middleware.authenticate(headers)          → principal | null
+ *   Middleware.authorize(principal, perm)     → true | throws Error
+ *   Middleware.requireAuth(headers)           → principal  (throw nếu sai)
+ *   Middleware.requirePermission(hdrs, perm)  → principal  (throw nếu thiếu quyền)
+ *   Middleware.checkOrigin(headers)           → boolean
+ *   Middleware.checkRateLimit(ip)             → boolean (true = bị limit)
+ *
+ * Cách dùng trong route handler:
+ *
+ *   function handleGetUsers(headers, ip) {
+ *     const principal = Middleware.requirePermission(headers, 'users.read');
+ *     // principal = { userId, username, role, permissions, ... }
+ *     return successResponse(UserService.list());
+ *   }
+ *
+ * "Principal" là object được decode từ JWT payload — tương đương UserDetails trong Spring.
+ */
+
+const Middleware = (() => {
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTHENTICATE — Đọc Bearer token, verify JWT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Xác thực request thông qua Authorization header.
+   * Tương đương JwtAuthenticationFilter trong Spring Security.
+   *
+   * @param {object} headers - Request headers (key-value)
+   * @returns {object|null} principal nếu hợp lệ; null nếu không có / sai token
+   *
+   * @example
+   *   const principal = Middleware.authenticate(e.headers);
+   *   // { userId, username, role, permissions, exp, iat }
+   */
+  function authenticate(headers) {
+    const authHeader = _getAuthHeader(headers);
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+    const token = authHeader.slice(7).trim();
+    if (!token) return null;
+
+    const payload = JwtService.verifyToken(token);
+    if (!payload) return null;
+
+    return payload; // payload chính là "principal"
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTHORIZE — Kiểm tra quyền
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Kiểm tra principal có permission không.
+   * Tương đương @PreAuthorize("hasAuthority('xxx')") trong Spring.
+   *
+   * @param {object} principal  - Từ authenticate()
+   * @param {string} permission - e.g. 'surveys.create'
+   * @returns {boolean}
+   * @throws {Error} 'Forbidden' nếu không có quyền
+   *
+   * @example
+   *   Middleware.authorize(principal, 'surveys.create');
+   *   // Không throw → có quyền
+   *   // Throw Error('Forbidden') → thiếu quyền
+   */
+  function authorize(principal, permission) {
+    if (!principal) throw Object.assign(new Error('Unauthorized'), { code: 401 });
+    if (!permission) return true; // Không yêu cầu permission cụ thể
+
+    const hasIt = RoleService.hasPermission(principal.role, permission)
+      || (Array.isArray(principal.permissions) && principal.permissions.includes(permission));
+
+    if (!hasIt) {
+      throw Object.assign(
+        new Error(`Forbidden: thiếu quyền '${permission}' (role: ${principal.role})`),
+        { code: 403 }
+      );
+    }
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // REQUIRE — Combine authenticate + authorize (convenience)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Yêu cầu phải authenticated.
+   * Throw Error nếu không có / sai token.
+   *
+   * @param {object} headers
+   * @returns {object} principal
+   * @throws {Error} code 401 nếu chưa đăng nhập
+   *
+   * @example
+   *   const principal = Middleware.requireAuth(headers);
+   */
+  function requireAuth(headers) {
+    const principal = authenticate(headers);
+    if (!principal) throw Object.assign(new Error('Unauthorized: vui lòng đăng nhập'), { code: 401 });
+    return principal;
+  }
+
+  /**
+   * Yêu cầu authenticated + có permission.
+   * Đây là hàm tiện lợi nhất, dùng trong hầu hết route handlers.
+   *
+   * @param {object} headers
+   * @param {string} permission
+   * @returns {object} principal
+   * @throws {Error} code 401 hoặc 403
+   *
+   * @example
+   *   const user = Middleware.requirePermission(headers, 'surveys.create');
+   *   // Chỉ cần 1 dòng thay vì authenticate() + authorize()
+   */
+  function requirePermission(headers, permission) {
+    const principal = requireAuth(headers);
+    authorize(principal, permission);
+    return principal;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ORIGIN / RATE LIMIT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Kiểm tra Origin header có trong whitelist không.
+   * @param {object} headers
+   * @returns {boolean} true = được phép
+   */
+  function checkOrigin(headers) {
+    const origin = _getHeader(headers, 'Origin') || _getHeader(headers, 'origin');
+    return isOriginAllowed_(origin);
+  }
+
+  /**
+   * Kiểm tra rate limit cho IP.
+   * @param {string} ip
+   * @returns {boolean} true = đang bị rate limited
+   */
+  function checkRateLimit(ip) {
+    return isRateLimited_(ip);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRIVATE HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Lấy Authorization header (case-insensitive). */
+  function _getAuthHeader(headers) {
+    if (!headers) return '';
+    return _getHeader(headers, 'Authorization') || _getHeader(headers, 'authorization') || '';
+  }
+
+  /** Lấy header theo key (thử cả camelCase và lowercase). */
+  function _getHeader(headers, key) {
+    if (!headers) return '';
+    return headers[key] || headers[key.toLowerCase()] || '';
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+  return { authenticate, authorize, requireAuth, requirePermission, checkOrigin, checkRateLimit };
+})();

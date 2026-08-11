@@ -1,0 +1,357 @@
+/**
+ * Utils.gs — Các hàm tiện ích dùng chung
+ *
+ * Bao gồm:
+ *  - Response builders (success / error)
+ *  - Sheet CRUD helpers (sheetToObjects, writeObjects, appendObject, upsertObject)
+ *  - Logging (writeLog)
+ *  - ID generation
+ *  - Base64Url encode/decode (dùng cho JWT)
+ *  - Rate limiting
+ *  - Input sanitization
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// RESPONSE BUILDERS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tạo HTTP response JSON chuẩn.
+ * @param {object} obj - Dữ liệu trả về
+ */
+function jsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Response thành công.
+ * @param {*} data - Dữ liệu
+ * @param {string} [message='Success']
+ * @param {number} [statusCode=200]
+ */
+function successResponse(data, message, statusCode) {
+  return jsonResponse_({
+    success: true,
+    message: message || 'Success',
+    data:    data    || null,
+    status:  statusCode || 200,
+  });
+}
+
+/**
+ * Response lỗi.
+ * @param {string} message - Mô tả lỗi
+ * @param {number} [statusCode=400]
+ * @param {*} [details] - Chi tiết lỗi (validation errors, v.v.)
+ */
+function errorResponse(message, statusCode, details) {
+  const res = {
+    success: false,
+    message: message || 'Error',
+    status:  statusCode || 400,
+  };
+  if (details) res.details = details;
+  return jsonResponse_(res);
+}
+
+// Shortcuts cho các HTTP status phổ biến
+const error400 = (msg, details) => errorResponse(msg || 'Bad Request',   400, details);
+const error401 = (msg)          => errorResponse(msg || 'Unauthorized',  401);
+const error403 = (msg)          => errorResponse(msg || 'Forbidden',     403);
+const error404 = (msg)          => errorResponse(msg || 'Not Found',     404);
+const error500 = (msg)          => errorResponse(msg || 'Internal Server Error', 500);
+
+// ═══════════════════════════════════════════════════════════════
+// SHEET HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Lấy Spreadsheet active.
+ */
+function getSpreadsheet_() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+/**
+ * Lấy sheet theo tên; tạo mới nếu chưa có.
+ */
+function getOrCreateSheet_(name) {
+  const ss = getSpreadsheet_();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    const headers = SHEET_HEADERS[name];
+    if (headers) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.setFrozenRows(1);
+    }
+  }
+  return sh;
+}
+
+/**
+ * Đọc toàn bộ sheet, trả về mảng object {header: value}.
+ * @param {string} sheetName
+ * @returns {object[]}
+ */
+function sheetToObjects_(sheetName) {
+  const sh = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sh) return [];
+  const values = sh.getDataRange().getValues();
+  if (values.length < 2) return [];
+  const headers = values[0].map(String);
+  return values.slice(1)
+    .filter(row => row.some(c => c !== ''))
+    .map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    });
+}
+
+/**
+ * Ghi đè toàn bộ sheet (xóa cũ, ghi mới).
+ * @param {string} sheetName
+ * @param {object[]} rows
+ * @param {string[]} [headers] - Nếu không truyền, dùng SHEET_HEADERS
+ */
+function writeObjects_(sheetName, rows, headers) {
+  const sh = getOrCreateSheet_(sheetName);
+  sh.clearContents();
+  const hdrs = headers || SHEET_HEADERS[sheetName] || (rows.length ? Object.keys(rows[0]) : []);
+  if (!hdrs.length) return;
+  const data = [hdrs, ...rows.map(r => hdrs.map(h => r[h] == null ? '' : r[h]))];
+  sh.getRange(1, 1, data.length, hdrs.length).setValues(data);
+  sh.setFrozenRows(1);
+}
+
+/**
+ * Append 1 row vào sheet.
+ * @param {string} sheetName
+ * @param {object} row
+ */
+function appendObject_(sheetName, row) {
+  const sh = getOrCreateSheet_(sheetName);
+  const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
+  sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+}
+
+/**
+ * Upsert: tìm theo field, update nếu tồn tại, append nếu chưa có.
+ * @param {string} sheetName
+ * @param {object} row
+ * @param {string} [keyField='id']
+ */
+function upsertObject_(sheetName, row, keyField) {
+  const key = keyField || 'id';
+  const sh  = getOrCreateSheet_(sheetName);
+  const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
+  const values  = sh.getDataRange().getValues();
+
+  if (values.length < 1) {
+    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+    return;
+  }
+  const hdrs = values[0].map(String);
+  const keyIdx = hdrs.indexOf(key);
+  if (keyIdx === -1) { appendObject_(sheetName, row); return; }
+
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][keyIdx]) === String(row[key])) {
+      // Update row tại chỗ
+      const newRow = headers.map(h => {
+        const idx = hdrs.indexOf(h);
+        return idx !== -1 && row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)] || '';
+      });
+      sh.getRange(i + 1, 1, 1, hdrs.length).setValues([hdrs.map(h => {
+        return row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)];
+      })]);
+      return;
+    }
+  }
+  // Chưa tồn tại → append
+  appendObject_(sheetName, row);
+}
+
+/**
+ * Tìm 1 row theo điều kiện.
+ * @param {string} sheetName
+ * @param {string} field
+ * @param {*} value
+ * @returns {object|null}
+ */
+function findOne_(sheetName, field, value) {
+  return sheetToObjects_(sheetName).find(r => String(r[field]) === String(value)) || null;
+}
+
+/**
+ * Xóa row theo field=value.
+ * @param {string} sheetName
+ * @param {string} field
+ * @param {*} value
+ */
+function deleteRow_(sheetName, field, value) {
+  const sh = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sh) return;
+  const values = sh.getDataRange().getValues();
+  if (values.length < 2) return;
+  const idx = values[0].map(String).indexOf(field);
+  if (idx === -1) return;
+  // Duyệt từ dưới lên để tránh lệch chỉ số khi xóa
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (String(values[i][idx]) === String(value)) {
+      sh.deleteRow(i + 1);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ID GENERATION
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tạo ID duy nhất dạng '<prefix>_<timestamp><random>'.
+ * @param {string} [prefix='id']
+ */
+function generateId_(prefix) {
+  const ts  = Date.now().toString(36);
+  const rnd = Math.random().toString(36).slice(2, 7);
+  return (prefix || 'id') + '_' + ts + rnd;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BASE64URL (dùng cho JWT)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Encode chuỗi sang base64url (không có padding, URL-safe).
+ * @param {string} str
+ */
+function base64UrlEncode_(str) {
+  return Utilities.base64Encode(str, Utilities.Charset.UTF_8)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/**
+ * Decode base64url về chuỗi UTF-8.
+ * @param {string} b64url
+ */
+function base64UrlDecode_(b64url) {
+  let s = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Utilities.newBlob(Utilities.base64Decode(s)).getDataAsString();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOGGING
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ghi log request vào sheet Logs.
+ * @param {object} entry - { ip, method, endpoint, userId, role, status, durationMs, userAgent }
+ */
+function writeLog_(entry) {
+  try {
+    appendObject_('Logs', {
+      id:         generateId_('log'),
+      time:       new Date().toISOString(),
+      ip:         entry.ip         || '',
+      method:     entry.method     || '',
+      endpoint:   entry.endpoint   || '',
+      userId:     entry.userId     || '',
+      role:       entry.role       || '',
+      status:     entry.status     || '',
+      durationMs: entry.durationMs || 0,
+      userAgent:  entry.userAgent  || '',
+    });
+  } catch (e) {
+    // Không để lỗi log làm crash cả request
+    console.error('Log error:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RATE LIMITING
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Kiểm tra rate limit theo IP, dùng Cache Service (1 phút).
+ * Trả về true nếu vượt giới hạn.
+ * @param {string} ip
+ */
+function isRateLimited_(ip) {
+  if (!ip) return false;
+  try {
+    const cache   = CacheService.getScriptCache();
+    const key     = 'rl_' + ip.replace(/[^a-z0-9]/gi, '_');
+    const current = parseInt(cache.get(key) || '0', 10);
+    if (current >= CONFIG.MAX_REQUESTS_PER_MINUTE) return true;
+    cache.put(key, String(current + 1), 60); // TTL 60 giây
+    return false;
+  } catch (e) {
+    return false; // Nếu Cache lỗi, cho qua
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORS & SECURITY HEADERS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Kiểm tra origin có được phép không.
+ * @param {string} origin
+ */
+function isOriginAllowed_(origin) {
+  if (!origin) return true; // Không có origin header (server-to-server)
+  return CONFIG.ALLOWED_ORIGINS.some(o => origin.startsWith(o));
+}
+
+/**
+ * Lấy IP từ request headers (Apps Script không expose IP trực tiếp).
+ * Dùng X-Forwarded-For nếu có.
+ * @param {object} headers
+ */
+function getClientIp_(headers) {
+  if (!headers) return 'unknown';
+  return (headers['X-Forwarded-For'] || headers['x-forwarded-for'] || 'unknown').split(',')[0].trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INPUT SANITIZATION
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Làm sạch chuỗi: strip HTML tags, trim.
+ * Chống XSS cơ bản.
+ * @param {string} str
+ */
+function sanitize_(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/<[^>]*>/g, '')        // strip HTML tags
+    .replace(/[<>"'&]/g, c => ({    // escape special chars
+      '<': '&lt;', '>': '&gt;',
+      '"': '&quot;', "'": '&#39;',
+      '&': '&amp;',
+    })[c] || c)
+    .trim();
+}
+
+/**
+ * Sanitize đệ quy một object.
+ * @param {object|string} input
+ */
+function sanitizeInput_(input) {
+  if (typeof input === 'string') return sanitize_(input);
+  if (Array.isArray(input))     return input.map(sanitizeInput_);
+  if (input && typeof input === 'object') {
+    const out = {};
+    Object.keys(input).forEach(k => { out[k] = sanitizeInput_(input[k]); });
+    return out;
+  }
+  return input;
+}

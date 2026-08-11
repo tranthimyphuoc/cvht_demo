@@ -1,0 +1,115 @@
+/**
+ * SurveyService.gs — Quản lý khảo sát (Survey & SurveyAnswer)
+ *
+ * Hàm public:
+ *   SurveyService.list()                          → survey[]
+ *   SurveyService.findById(id)                    → survey | null
+ *   SurveyService.create(data, principal)          → survey
+ *   SurveyService.update(id, data, principal)      → survey | null
+ *   SurveyService.remove(id, principal)            → boolean
+ *   SurveyService.submitAnswer(surveyId, answers, principal) → answer
+ *   SurveyService.getAnswers(surveyId)             → answer[]
+ */
+
+const SurveyService = (() => {
+
+  const S_SHEET  = 'Survey';
+  const SA_SHEET = 'SurveyAnswer';
+
+  // ── SURVEY CRUD ────────────────────────────────────────────────────────────
+
+  function list() {
+    return sheetToObjects_(S_SHEET);
+  }
+
+  function findById(id) {
+    return findOne_(S_SHEET, 'id', id);
+  }
+
+  /**
+   * Tạo khảo sát mới.
+   * @param {{ title, description }} data
+   * @param {object} principal - user đang đăng nhập
+   */
+  function create(data, principal) {
+    const v = Validation.request(data, { title: ['required'] });
+    if (!v.valid) throw new Error(v.errors.join('; '));
+
+    const now    = new Date().toISOString();
+    const survey = {
+      id:          generateId_('sv'),
+      title:       sanitize_(data.title),
+      description: sanitize_(data.description || ''),
+      createdBy:   principal.userId,
+      status:      'ACTIVE',
+      createdAt:   now,
+      updatedAt:   now,
+    };
+    appendObject_(S_SHEET, survey);
+    return survey;
+  }
+
+  /**
+   * Cập nhật khảo sát. Chỉ người tạo hoặc QLDT mới được sửa.
+   */
+  function update(id, data, principal) {
+    const surveys = sheetToObjects_(S_SHEET);
+    const idx     = surveys.findIndex(s => s.id === id);
+    if (idx === -1) return null;
+
+    // Chỉ người tạo hoặc QLDT mới sửa được
+    if (surveys[idx].createdBy !== principal.userId && principal.role !== 'QLDT') {
+      throw Object.assign(new Error('Forbidden: chỉ người tạo hoặc QLĐT mới được sửa'), { code: 403 });
+    }
+
+    const updated = Object.assign({}, surveys[idx]);
+    if (data.title)       updated.title       = sanitize_(data.title);
+    if (data.description) updated.description = sanitize_(data.description);
+    if (data.status)      updated.status      = data.status;
+    updated.updatedAt = new Date().toISOString();
+
+    surveys[idx] = updated;
+    writeObjects_(S_SHEET, surveys);
+    return updated;
+  }
+
+  /**
+   * Xóa khảo sát (soft delete: đổi status = DELETED).
+   */
+  function remove(id, principal) {
+    return update(id, { status: 'DELETED' }, principal) !== null;
+  }
+
+  // ── SURVEY ANSWERS ─────────────────────────────────────────────────────────
+
+  /**
+   * Nộp câu trả lời khảo sát.
+   * @param {string} surveyId
+   * @param {object} answers - { questionKey: answer, ... }
+   * @param {object} principal
+   */
+  function submitAnswer(surveyId, answers, principal) {
+    const survey = findById(surveyId);
+    if (!survey || survey.status !== 'ACTIVE') throw new Error('Khảo sát không tồn tại hoặc đã đóng');
+
+    const answer = {
+      id:          generateId_('sa'),
+      surveyId:    surveyId,
+      userId:      principal.userId,
+      answersJson: JSON.stringify(answers || {}),
+      submittedAt: new Date().toISOString(),
+    };
+    appendObject_(SA_SHEET, answer);
+    return answer;
+  }
+
+  /**
+   * Lấy tất cả câu trả lời của 1 khảo sát.
+   */
+  function getAnswers(surveyId) {
+    return sheetToObjects_(SA_SHEET).filter(a => a.surveyId === surveyId);
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+  return { list, findById, create, update, remove, submitAnswer, getAnswers };
+})();
