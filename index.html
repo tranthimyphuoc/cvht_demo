@@ -74,6 +74,7 @@
   </div>
 
   <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/data.js"></script>
   <script src="js/sheets.js"></script>
   <script src="js/store.js"></script>
@@ -146,13 +147,51 @@
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       loginError.classList.remove('show');
-      await ensureSheetsUsers();
-      const email = document.getElementById('email').value.trim().toLowerCase();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang đăng nhập…';
+
+      const email    = document.getElementById('email').value.trim().toLowerCase();
       const password = document.getElementById('password').value;
+
+      // ── Ưu tiên: đăng nhập qua JWT API (password đã hash server-side) ──
+      if (typeof Api !== 'undefined' && APP_CONFIG.mode === 'sheets') {
+        try {
+          const result = await Api.login(email, password);
+          // Lưu session cho app hiện tại (backward compat)
+          Store.setSession(result.user);
+          location.href = 'app.html';
+          return;
+        } catch (apiErr) {
+          // Nếu lỗi 401 → sai password; lỗi khác → network/server
+          const msg = apiErr.message || '';
+          if (msg.includes('không đúng') || msg.includes('Unauthorized') || apiErr.status === 401) {
+            loginError.textContent = 'Email hoặc mật khẩu không đúng.';
+          } else {
+            // Lỗi mạng → thử fallback local
+            console.warn('API login lỗi, thử local:', msg);
+            const localUser = Store.findByLogin(email, password);
+            if (localUser) {
+              Store.setSession(localUser);
+              location.href = 'app.html';
+              return;
+            }
+            loginError.textContent = 'Không kết nối được server. Kiểm tra lại mạng.';
+          }
+          loginError.classList.add('show');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Vào hệ thống';
+          return;
+        }
+      }
+
+      // ── Fallback: local mode (không có Sheets) ──
+      await ensureSheetsUsers();
       const user = Store.findByLogin(email, password);
       if (!user) {
         loginError.textContent = 'Email hoặc mật khẩu không đúng.';
         loginError.classList.add('show');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Vào hệ thống';
         return;
       }
       Store.setSession(user);

@@ -15,7 +15,7 @@ const APP_CONFIG = {
   timezone: 'Asia/Ho_Chi_Minh',
   reportDeadline: { day: 5, hour: 23, minute: 0 },
   mode: 'sheets', // đổi thành 'sheets' khi đã có Web App URL
-  sheetsWebAppUrl: 'https://script.google.com/macros/s/AKfycbxTLwExwjNxwsoBBmR150shsbZeoxZRMtbXBh7u-kUUVjCfvTqGFHEsL6jaewLl7_6d/exec', // ví dụ: 'https://script.google.com/macros/s/XXXX/exec'
+  sheetsWebAppUrl: 'https://script.google.com/macros/s/AKfycbwnyRpu5ICM-p07exX6F_NZjgADZngRT32VIyAnyzZV60eAtbWX_InhaWh2F7fMoQwv/exec', // ví dụ: 'https://script.google.com/macros/s/XXXX/exec'
   sheetsApiKey: '', // optional — bật check trong Code.gs nếu cần
   version: '4.3.0',
 };

@@ -431,15 +431,22 @@ const Store = {
     return data.users.find((u) => u.id === id) || SEED.users.find((u) => u.id === id) || null;
   },
 
-  /** Đăng nhập — chuẩn hóa email/password (Sheets hay trả password dạng số) */
+  /** Đăng nhập — chuẩn hóa email/password (Sheets hay trả password dạng số).
+   *  Nếu password trong sheet là SHA-256 hash (64 hex) → việc verify do Api.login() xử lý.
+   *  findByLogin chỉ dùng cho local/offline mode với password chưa hash.
+   */
   findByLogin(email, password) {
     const em = String(email || '').trim().toLowerCase();
     const pw = String(password ?? '').trim();
     const users = this.get().users || [];
     return users.find((u) => {
       const uEmail = String(u.email || '').trim().toLowerCase();
-      const uPass = String(u.password ?? '').trim();
-      return uEmail === em && uPass === pw && u.active !== false;
+      const uPass  = String(u.password ?? '').trim();
+      if (uEmail !== em || u.active === false) return false;
+      // Password đã hash (SHA-256 = 64 ký tự hex) → chỉ match email, bỏ qua verify password
+      // (việc verify password hash do Api.login() trên server xử lý)
+      if (/^[a-f0-9]{64}$/.test(uPass)) return false; // Không dùng local verify khi đã hash
+      return uPass === pw;
     }) || null;
   },
 
