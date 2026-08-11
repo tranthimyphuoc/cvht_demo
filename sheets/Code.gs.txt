@@ -191,7 +191,7 @@ function _route(path, method, body, headers, ip) {
 
       // ── /users ────────────────────────────────────────────────────────────
       case 'users':
-        return _routeUsers(id, method, safeBody, headers);
+        return _routeUsers(id, sub, method, safeBody, headers);
 
       // ── /surveys ──────────────────────────────────────────────────────────
       case 'surveys':
@@ -264,6 +264,18 @@ function _routeAuth(action, method, body, headers, ip) {
       return successResponse(null, 'Đăng xuất thành công');
     }
 
+    // POST /auth/change-password  (user tự đổi mật khẩu — cần đăng nhập)
+    case 'change-password': {
+      const principal = Middleware.requireAuth(headers);
+      const v = Validation.request(body, {
+        oldPassword: ['required'],
+        newPassword: ['required', 'password'],
+      });
+      if (!v.valid) return error400('Validation thất bại', v.errors);
+      UserService.changePassword(principal.userId, body.oldPassword, body.newPassword);
+      return successResponse(null, 'Đổi mật khẩu thành công');
+    }
+
     default:
       return error404(`Auth route không tồn tại: /auth/${action}`);
   }
@@ -273,7 +285,16 @@ function _routeAuth(action, method, body, headers, ip) {
 // USER ROUTES
 // ══════════════════════════════════════════════════════════════════════
 
-function _routeUsers(id, method, body, headers) {
+function _routeUsers(id, sub, method, body, headers) {
+
+  // POST /users/{id}/reset-password  (admin only)
+  if (id && sub === 'reset-password' && method === 'POST') {
+    Middleware.requirePermission(headers, 'users.update');
+    if (!body.newPassword) return error400('Thiếu newPassword');
+    UserService.adminResetPassword(id, body.newPassword);
+    return successResponse(null, 'Đặt lại mật khẩu thành công');
+  }
+
   switch (method) {
 
     case 'GET': {

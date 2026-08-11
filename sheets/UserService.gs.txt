@@ -236,11 +236,58 @@ const UserService = (() => {
     return name.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // PASSWORD MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * User tự đổi mật khẩu — phải cung cấp mật khẩu cũ đúng.
+   * @param {string} userId
+   * @param {string} oldPassword  - mật khẩu hiện tại (plaintext)
+   * @param {string} newPassword  - mật khẩu mới (plaintext, >= 8 ký tự)
+   * @returns {boolean}
+   */
+  function changePassword(userId, oldPassword, newPassword) {
+    const users = sheetToObjects_(SHEET);
+    const idx   = users.findIndex((u) => u.id === userId && u.active !== 'false' && u.active !== false);
+    if (idx === -1) { const e = new Error('User không tồn tại'); e.code = 404; throw e; }
+    if (!checkPassword(oldPassword, users[idx].password)) {
+      const e = new Error('Mật khẩu cũ không đúng'); e.code = 401; throw e;
+    }
+    if (!newPassword || String(newPassword).length < 8) {
+      const e = new Error('Mật khẩu mới phải có ít nhất 8 ký tự'); e.code = 400; throw e;
+    }
+    users[idx].password  = hashPassword(newPassword);
+    users[idx].updatedAt = new Date().toISOString();
+    writeObjects_(SHEET, users);
+    return true;
+  }
+
+  /**
+   * Admin reset mật khẩu người dùng bất kỳ — không cần mật khẩu cũ.
+   * @param {string} userId
+   * @param {string} newPassword  - mật khẩu mới (plaintext, >= 8 ký tự)
+   * @returns {boolean}
+   */
+  function adminResetPassword(userId, newPassword) {
+    const users = sheetToObjects_(SHEET);
+    const idx   = users.findIndex((u) => u.id === userId);
+    if (idx === -1) { const e = new Error('User không tồn tại'); e.code = 404; throw e; }
+    if (!newPassword || String(newPassword).length < 8) {
+      const e = new Error('Mật khẩu phải có ít nhất 8 ký tự'); e.code = 400; throw e;
+    }
+    users[idx].password  = hashPassword(newPassword);
+    users[idx].updatedAt = new Date().toISOString();
+    writeObjects_(SHEET, users);
+    return true;
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
   return {
     findByEmail, findByUsername, findById,
     list, create, update, deactivate,
     hashPassword, checkPassword,
+    changePassword, adminResetPassword,
     migratePasswords, toPublic,
   };
 })();

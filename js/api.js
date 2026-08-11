@@ -224,12 +224,31 @@ const Api = (() => {
     return !!getAccessToken();
   }
 
+  /**
+   * User tự đổi mật khẩu (cần đăng nhập, phải nhập đúng mật khẩu cũ).
+   * @param {string} oldPassword
+   * @param {string} newPassword
+   */
+  async function changePassword(oldPassword, newPassword) {
+    return _fetch('/auth/change-password', 'POST', { oldPassword, newPassword }, true);
+  }
+
+  /**
+   * Admin reset mật khẩu cho user bất kỳ (không cần mật khẩu cũ).
+   * @param {string} userId
+   * @param {string} newPassword
+   */
+  async function adminResetPassword(userId, newPassword) {
+    return _fetch(`/users/${userId}/reset-password`, 'POST', { newPassword }, true);
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────────
   return {
     // HTTP methods
     get, post, put, delete: del,
     // Auth
     login, register, logout, isLoggedIn,
+    changePassword, adminResetPassword,
     // Token info
     getAccessToken, getRefreshToken, getUser,
   };

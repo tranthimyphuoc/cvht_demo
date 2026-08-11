@@ -27,6 +27,7 @@
     classFilterCampus: '',
     classFilterMajor: '',
     classFilterProgram: '',
+    accountsQ: '',
     trace: {},
   };
 
@@ -712,6 +713,7 @@
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
+      { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     LOP_TRUONG: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
@@ -720,6 +722,7 @@
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
+      { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     LOP_TRUONG_NN: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
@@ -728,6 +731,7 @@
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
+      { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     CVHT: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
@@ -741,6 +745,7 @@
       { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
+      { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     QLDT: [
       { group: 'Điều hành' },
@@ -760,21 +765,23 @@
       { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
 
-      { group: 'Nhân sự & hệ thống', collapse: true, routes: ['people', 'admin', 'subjects', 'audit', 'sheets'] },
+      { group: 'Nhân sự & hệ thống', collapse: true, routes: ['people', 'accounts', 'admin', 'subjects', 'audit', 'sheets'] },
       { id: 'people', label: 'Nhân sự & vai trò', icon: '☺' },
+      { id: 'accounts', label: 'Quản lý tài khoản', icon: '⚿' },
       { id: 'admin', label: 'Phân công lớp', icon: '⚙' },
       { id: 'subjects', label: 'Khung CT · Khóa', icon: '☰' },
       { id: 'audit', label: 'Nhật ký', icon: '◷' },
       { id: 'sheets', label: 'Google Sheets', icon: '⧉' },
+      { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
   };
 
   const ROLE_ROUTES = {
-    BI_THU: ['dashboard', 'classes', 'report-bt', 'reports', 'at-risk', 'notifications', 'demo', 'guide'],
-    LOP_TRUONG: ['dashboard', 'classes', 'report-lt', 'reports', 'at-risk', 'notifications', 'demo', 'guide'],
-    LOP_TRUONG_NN: ['dashboard', 'classes', 'report-nn', 'reports', 'at-risk', 'notifications', 'demo', 'guide'],
-    CVHT: ['dashboard', 'classes', 'inbox', 'visits', 'report-cvht', 'rpoint', 'reports', 'at-risk', 'counseling', 'escalations', 'notifications', 'demo', 'guide'],
-    QLDT: ['dashboard', 'classes', 'inbox', 'reports', 'visits', 'rpoint', 'at-risk', 'counseling', 'escalations', 'people', 'admin', 'subjects', 'audit', 'sheets', 'notifications', 'demo', 'guide', 'report-bt', 'report-lt', 'report-nn', 'report-cvht'],
+    BI_THU: ['dashboard', 'classes', 'report-bt', 'reports', 'at-risk', 'notifications', 'change-password', 'demo', 'guide'],
+    LOP_TRUONG: ['dashboard', 'classes', 'report-lt', 'reports', 'at-risk', 'notifications', 'change-password', 'demo', 'guide'],
+    LOP_TRUONG_NN: ['dashboard', 'classes', 'report-nn', 'reports', 'at-risk', 'notifications', 'change-password', 'demo', 'guide'],
+    CVHT: ['dashboard', 'classes', 'inbox', 'visits', 'report-cvht', 'rpoint', 'reports', 'at-risk', 'counseling', 'escalations', 'notifications', 'change-password', 'demo', 'guide'],
+    QLDT: ['dashboard', 'classes', 'inbox', 'reports', 'visits', 'rpoint', 'at-risk', 'counseling', 'escalations', 'people', 'accounts', 'admin', 'subjects', 'audit', 'sheets', 'notifications', 'change-password', 'demo', 'guide', 'report-bt', 'report-lt', 'report-nn', 'report-cvht'],
   };
 
   function pendingForRole() {
@@ -4639,15 +4646,52 @@
           <select id="eRole">${APP_ROLES.map((k) => `<option value="${k}" ${userRole(u) === k ? 'selected' : ''}>${ROLE_LABELS[k]}</option>`).join('')}</select></div>
         <div class="field"><label>Lý do</label><input id="eReason" value="Cập nhật hồ sơ" /></div>
       </div>
-      <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button><button class="btn btn-primary" id="mSave">Lưu</button></div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="mCancel">Hủy</button>
+        <button class="btn btn-danger btn-sm" id="mResetPw" style="margin-right:auto">Đặt lại mật khẩu</button>
+        <button class="btn btn-primary" id="mSave">Lưu</button>
+      </div>
     </div></div>`;
     $('#mClose').onclick = $('#mCancel').onclick = closeModal;
+    $('#mResetPw').onclick = () => { closeModal(); openResetPasswordModal(userId); };
     $('#mSave').onclick = () => {
       Store.updateUser(user, userId, {
         name: $('#eName').value, email: $('#eEmail').value, primaryRole: $('#eRole').value,
       }, $('#eReason').value);
       toast('Đã cập nhật'); closeModal();
       if (routeParams.id) pagePersonDetail(userId); else pagePeople();
+    };
+  }
+
+  function openResetPasswordModal(userId) {
+    const u = findUser(userId);
+    $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal">
+      <div class="modal-head"><h3>Đặt lại mật khẩu — ${escAttr(u.name)}</h3><button class="btn btn-ghost btn-sm" id="mClose">✕</button></div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Mật khẩu mới sẽ được áp dụng ngay lập tức. Thông báo cho người dùng sau khi đặt lại.</p>
+        <div class="field"><label>Mật khẩu mới</label><input id="rpNew" type="password" placeholder="Tối thiểu 8 ký tự" /></div>
+        <div class="field"><label>Xác nhận</label><input id="rpConfirm" type="password" placeholder="Nhập lại mật khẩu mới" /></div>
+        <div id="rpErr" style="color:var(--danger);font-size:13px;display:none"></div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button><button class="btn btn-primary" id="mSave">Đặt lại</button></div>
+    </div></div>`;
+    $('#mClose').onclick = $('#mCancel').onclick = closeModal;
+    $('#mSave').onclick = async () => {
+      const pw = $('#rpNew').value, cf = $('#rpConfirm').value;
+      const err = $('#rpErr');
+      err.style.display = 'none';
+      if (pw.length < 8) { err.textContent = 'Mật khẩu phải có ít nhất 8 ký tự'; err.style.display = ''; return; }
+      if (pw !== cf) { err.textContent = 'Mật khẩu xác nhận không khớp'; err.style.display = ''; return; }
+      const btn = $('#mSave'); btn.disabled = true; btn.textContent = 'Đang lưu…';
+      try {
+        if (typeof Api !== 'undefined') {
+          await Api.adminResetPassword(userId, pw);
+        }
+        toast(`Đã đặt lại mật khẩu cho ${u.name}`); closeModal();
+      } catch (e) {
+        err.textContent = e.message || 'Không thể đặt lại mật khẩu'; err.style.display = '';
+        btn.disabled = false; btn.textContent = 'Đặt lại';
+      }
     };
   }
 
@@ -5582,6 +5626,131 @@
   }
 
   /* ---------- Router ---------- */
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE: ĐỔI MẬT KHẨU (tất cả roles)
+  // ══════════════════════════════════════════════════════════════════════
+  function pageChangePassword() {
+    setPage('Đổi mật khẩu', 'Cập nhật mật khẩu đăng nhập của bạn');
+    $('#content').innerHTML = `
+      <div class="panel" style="max-width:480px;margin:0 auto;padding:28px 32px">
+        <h3 style="margin-bottom:6px;font-size:16px">Đổi mật khẩu</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Mật khẩu mới phải có ít nhất 8 ký tự.</p>
+        <div class="field"><label>Mật khẩu hiện tại</label>
+          <input id="cpOld" type="password" placeholder="Nhập mật khẩu hiện tại" autocomplete="current-password" /></div>
+        <div class="field"><label>Mật khẩu mới</label>
+          <input id="cpNew" type="password" placeholder="Tối thiểu 8 ký tự" autocomplete="new-password" /></div>
+        <div class="field"><label>Xác nhận mật khẩu mới</label>
+          <input id="cpConfirm" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" /></div>
+        <div id="cpErr" style="color:var(--danger);font-size:13px;margin-bottom:10px;display:none"></div>
+        <div id="cpOk"  style="color:var(--success,#16a34a);font-size:13px;margin-bottom:10px;display:none">Đổi mật khẩu thành công!</div>
+        <button class="btn btn-primary" id="cpSave">Lưu mật khẩu mới</button>
+      </div>`;
+
+    $('#cpSave').onclick = async () => {
+      const oldPw = $('#cpOld').value, newPw = $('#cpNew').value, cfPw = $('#cpConfirm').value;
+      const err = $('#cpErr'), ok = $('#cpOk');
+      err.style.display = 'none'; ok.style.display = 'none';
+
+      if (!oldPw) { err.textContent = 'Vui lòng nhập mật khẩu hiện tại'; err.style.display = ''; return; }
+      if (newPw.length < 8) { err.textContent = 'Mật khẩu mới phải có ít nhất 8 ký tự'; err.style.display = ''; return; }
+      if (newPw !== cfPw) { err.textContent = 'Mật khẩu xác nhận không khớp'; err.style.display = ''; return; }
+      if (newPw === oldPw) { err.textContent = 'Mật khẩu mới phải khác mật khẩu cũ'; err.style.display = ''; return; }
+
+      const btn = $('#cpSave'); btn.disabled = true; btn.textContent = 'Đang lưu…';
+      try {
+        if (typeof Api !== 'undefined') {
+          await Api.changePassword(oldPw, newPw);
+        } else {
+          throw new Error('API chưa sẵn sàng. Kiểm tra kết nối.');
+        }
+        ok.style.display = ''; $('#cpOld').value = ''; $('#cpNew').value = ''; $('#cpConfirm').value = '';
+        toast('Đổi mật khẩu thành công');
+      } catch (e) {
+        err.textContent = e.message || 'Không thể đổi mật khẩu. Kiểm tra lại mật khẩu cũ.';
+        err.style.display = '';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Lưu mật khẩu mới';
+      }
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE: QUẢN LÝ TÀI KHOẢN (QLĐT only)
+  // ══════════════════════════════════════════════════════════════════════
+  function pageAccounts() {
+    if (!isAdmin()) return denyAccess();
+    setPage('Quản lý tài khoản', 'Xem, cập nhật thông tin đăng nhập và đặt lại mật khẩu người dùng');
+
+    const paintAccounts = () => {
+      const q = (state.accountsQ || '').trim().toLowerCase();
+      const list = allUsers()
+        .filter((u) => !u.aliasOf && u.active !== false)
+        .filter((u) => !q || [u.name, u.email, ROLE_LABELS[userRole(u)], u.campus]
+          .join(' ').toLowerCase().includes(q))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), 'vi'));
+
+      const tbody = $('#accountsTbody');
+      if (!tbody) return;
+      tbody.innerHTML = list.length ? list.map((u) => `
+        <tr>
+          <td>
+            <div style="font-weight:600">${esc(u.name)}</div>
+            <div style="font-size:12px;color:var(--muted)">${esc(u.email)}</div>
+          </td>
+          <td><span class="badge badge-brand">${esc(ROLE_LABELS[userRole(u)] || userRole(u))}</span></td>
+          <td>${esc(u.campus || '—')}</td>
+          <td style="color:var(--muted);font-size:12px">${u.updatedAt ? new Date(u.updatedAt).toLocaleDateString('vi') : '—'}</td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" data-acc-edit="${u.id}">Sửa thông tin</button>
+              <button class="btn btn-danger btn-sm" data-acc-reset="${u.id}">Đặt lại MK</button>
+            </div>
+          </td>
+        </tr>`).join('') : `<tr><td colspan="5"><div class="empty" style="padding:20px">${q ? 'Không tìm thấy tài khoản khớp' : 'Chưa có tài khoản'}</div></td></tr>`;
+
+      $$('[data-acc-edit]').forEach((b) => {
+        b.onclick = () => openEditUserModal(b.dataset.accEdit);
+      });
+      $$('[data-acc-reset]').forEach((b) => {
+        b.onclick = () => openResetPasswordModal(b.dataset.accReset);
+      });
+
+      const cnt = $('#accountsCount');
+      if (cnt) cnt.textContent = `${list.length} tài khoản${q ? ' (đã lọc)' : ''}`;
+    };
+
+    $('#content').innerHTML = `
+      <div class="admin-toolbar">
+        <span style="font-size:13px;color:var(--muted)" id="accountsCount"></span>
+        <input type="search" id="accountsQ" class="trace-q"
+          style="flex:1;min-width:180px;max-width:320px;height:34px"
+          placeholder="Tìm tên, email, vai trò…"
+          value="${escAttr(state.accountsQ || '')}" autocomplete="off" />
+      </div>
+      <div class="panel" style="padding:0;overflow:hidden">
+        <table class="report-table" style="width:100%">
+          <thead><tr>
+            <th>Người dùng</th>
+            <th>Vai trò</th>
+            <th>Campus</th>
+            <th>Cập nhật lần cuối</th>
+            <th>Thao tác</th>
+          </tr></thead>
+          <tbody id="accountsTbody"></tbody>
+        </table>
+      </div>`;
+
+    paintAccounts();
+
+    const aq = $('#accountsQ');
+    if (aq) {
+      let t = null;
+      const run = () => { state.accountsQ = aq.value; paintAccounts(); };
+      aq.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 150); });
+      aq.focus();
+    }
+  }
+
   function render() {
     parseRoute();
     if (!canAccessRoute(route)) {
@@ -5613,6 +5782,8 @@
       audit: pageAudit,
       sheets: pageSheets,
       notifications: pageNotifications,
+      'change-password': pageChangePassword,
+      accounts: pageAccounts,
       demo: pageDemo,
       guide: pageGuide,
     };
