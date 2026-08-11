@@ -51,24 +51,19 @@
           <strong>CVHT Hub</strong>
         </div>
         <h2>Đăng nhập</h2>
-        <p class="sub">Chọn tài khoản demo · mật khẩu <code>123456</code></p>
+        <p class="sub">Nhập email và mật khẩu được cấp để vào hệ thống</p>
         <div class="login-error" id="loginError">Email hoặc mật khẩu không đúng.</div>
         <form id="loginForm">
           <div class="field">
             <label for="email">Email</label>
-            <input id="email" type="email" placeholder="vd: lt@rikkei.edu" required autocomplete="username" />
+            <input id="email" type="email" placeholder="email@rikkei.edu" required autocomplete="username" />
           </div>
           <div class="field">
             <label for="password">Mật khẩu</label>
-            <input id="password" type="password" value="123456" required autocomplete="current-password" />
+            <input id="password" type="password" placeholder="Nhập mật khẩu" required autocomplete="current-password" />
           </div>
           <button type="submit" class="btn btn-primary btn-block">Vào hệ thống</button>
         </form>
-
-        <div class="demo-accounts">
-          <h3>Tài khoản demo</h3>
-          <div class="demo-grid" id="demoGrid"></div>
-        </div>
       </div>
     </section>
   </div>
@@ -120,29 +115,6 @@
         hideBoot();
       }
     })();
-
-    const demos = [
-      { email: 'bt@rikkei.edu', label: 'Bí thư', hint: 'HCM-KS24-CNTT1 · BC → CVHT' },
-      { email: 'lt@rikkei.edu', label: 'LT (CN)', hint: 'HCM-KS24-CNTT1 · BC → CVHT' },
-      { email: 'lt.nn@rikkei.edu', label: 'LT (NN)', hint: 'Chuyên cần → CVHT' },
-      { email: 'cvht@rikkei.edu', label: 'CVHT', hint: 'Phạm Viết Hùng · HCM CNTT' },
-      { email: 'admin@rikkei.edu', label: 'QLĐT', hint: 'Xem full' },
-    ];
-
-    document.getElementById('demoGrid').innerHTML = demos.map((d) => `
-      <button type="button" class="demo-chip" data-email="${d.email}">
-        <strong>${d.label}</strong>
-        <span>${d.hint}</span>
-      </button>
-    `).join('');
-
-    document.getElementById('demoGrid').addEventListener('click', (e) => {
-      const chip = e.target.closest('.demo-chip');
-      if (!chip) return;
-      document.getElementById('email').value = chip.dataset.email;
-      document.getElementById('password').value = '123456';
-      loginError.classList.remove('show');
-    });
 
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
