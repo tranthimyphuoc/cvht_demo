@@ -3593,29 +3593,28 @@
     if (role() === 'CVHT' && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind) && r.status === 'SENT_TO_CVHT') {
       const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
       const origScore = r.totalScore != null ? r.totalScore : '—';
-      const adjScore = r.adjustedScore != null ? r.adjustedScore : '';
+      // Tính tổng điều chỉnh hiện tại từ adjScores (nếu có)
+      const criteria = r.reportKind === 'LOP_TRUONG_NN' ? SEED.criteriaNN
+        : r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
+      const currentAdjTotal = Object.keys(adjScores).length > 0
+        ? criteria.reduce((s, c) => s + Number(adjScores[c.id] != null ? adjScores[c.id] : (r.formData?.[c.id]?.point ?? 0)), 0)
+        : null;
       actions = `<div class="panel">
         <div class="panel-head">
           <h2>Xử lý báo cáo</h2>
-          <span style="font-size:12px;color:var(--muted)">CVHT xem xét minh chứng và ghi chú</span>
+          <span style="font-size:12px;color:var(--muted)">Chỉnh điểm từng tiêu chí ở trên · Ghi chú và xác nhận bên dưới</span>
         </div>
         <div class="panel-body">
+          <div style="padding:12px 16px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft);display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div style="font-size:.825rem;color:var(--muted)">Điểm gốc tự chấm: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong></div>
+            <div style="font-size:.825rem;color:var(--muted)">→ Tổng điều chỉnh: <strong id="adjTotalDisplay" style="color:var(--primary);font-size:1rem">${currentAdjTotal != null ? currentAdjTotal : origScore}</strong><span style="color:var(--muted)">/${maxScore}</span></div>
+          </div>
+          <div class="field"><label>Lý do điều chỉnh (nếu có chỉnh điểm)</label>
+            <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
+              placeholder="VD: Ảnh minh chứng không rõ, chưa đủ % tỷ lệ chuyên cần" />
+          </div>
           <div class="field"><label>Ghi chú xem xét (nội bộ)</label>
             <textarea id="reviewNote" rows="3" placeholder="Nhận xét về nội dung, minh chứng, tính chính xác của báo cáo…">${esc(r.reviewNote || '')}</textarea>
-          </div>
-          <div style="padding:14px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft)">
-            <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Điều chỉnh điểm tự chấm</div>
-            <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc do LT/BT tự chấm: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong>. Nếu minh chứng chưa chính xác, CVHT có thể điều chỉnh lại.</p>
-            <div class="grid-2">
-              <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
-                <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
-                  value="${adjScore}" placeholder="Để trống = giữ nguyên điểm gốc" />
-              </div>
-              <div class="field"><label>Lý do điều chỉnh</label>
-                <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
-                  placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
-              </div>
-            </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ok" id="btnAck">Xác nhận đã đọc &amp; lưu</button>
@@ -3629,35 +3628,29 @@
         && ['SEEN_BY_CVHT', 'SENT_TO_QLDT', 'SEEN_BY_QLDT'].includes(r.status)) {
       const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
       const origScore = r.totalScore != null ? r.totalScore : '—';
-      const adjScore = r.adjustedScore != null ? r.adjustedScore : '';
+      const criteria = r.reportKind === 'LOP_TRUONG_NN' ? SEED.criteriaNN
+        : r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
+      const currentAdjTotal = Object.keys(adjScores).length > 0
+        ? criteria.reduce((s, c) => s + Number(adjScores[c.id] != null ? adjScores[c.id] : (r.formData?.[c.id]?.point ?? 0)), 0)
+        : null;
       actions = `<div class="panel">
         <div class="panel-head">
-          <h2>Ghi chú của bạn về báo cáo này</h2>
+          <h2>Ghi chú &amp; Điều chỉnh điểm</h2>
           <span style="font-size:12px;color:var(--ok)">✓ Đã xem xét ${r.reviewedAt ? '· ' + Scoring.fmtDateTime(r.reviewedAt) : ''}</span>
         </div>
         <div class="panel-body">
-          ${r.adjustedScore != null ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--warn-bg,#fef9ec);border-left:3px solid var(--warn);border-radius:6px;font-size:.875rem">
-            <strong>Điểm đã điều chỉnh: ${r.adjustedScore}/${maxScore}</strong> (Gốc: ${origScore})
-            ${r.adjustReason ? `<span style="color:var(--muted)"> · Lý do: ${esc(r.adjustReason)}</span>` : ''}
-          </div>` : ''}
+          <div style="padding:12px 16px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft);display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div style="font-size:.825rem;color:var(--muted)">Điểm gốc tự chấm: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong></div>
+            <div style="font-size:.825rem;color:var(--muted)">→ Tổng điều chỉnh: <strong id="adjTotalDisplay" style="color:var(--primary);font-size:1rem">${currentAdjTotal != null ? currentAdjTotal : origScore}</strong><span style="color:var(--muted)">/${maxScore}</span></div>
+          </div>
+          <div class="field"><label>Lý do điều chỉnh (nếu có chỉnh điểm từng tiêu chí ở trên)</label>
+            <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
+              placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
+          </div>
           <div class="field"><label>Ghi chú xem xét (có thể cập nhật thêm)</label>
             <textarea id="reviewNote" rows="3" placeholder="Nhận xét, lưu ý nội bộ về báo cáo này…">${esc(r.reviewNote || '')}</textarea>
           </div>
-          <div style="padding:14px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft)">
-            <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Cập nhật điểm tự chấm</div>
-            <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong>.</p>
-            <div class="grid-2">
-              <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
-                <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
-                  value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
-              </div>
-              <div class="field"><label>Lý do điều chỉnh</label>
-                <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
-                  placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
-              </div>
-            </div>
-          </div>
-          <button class="btn btn-primary btn-sm" id="btnAck">Lưu cập nhật ghi chú</button>
+          <button class="btn btn-primary btn-sm" id="btnAck">Lưu cập nhật</button>
         </div></div>`;
     }
     if (role() === 'QLDT' && r.reportKind === 'CVHT_TONG_HOP' && r.status === 'SENT_TO_QLDT') {
@@ -3674,6 +3667,18 @@
         <button class="btn btn-primary btn-sm" id="btnAck">Lưu ghi chú</button>
       </div></div>`;
     }
+
+    // CVHT đang xem xét và có thể điều chỉnh điểm từng phần
+    const isCvhtReview = role() === 'CVHT'
+      && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind)
+      && ['SENT_TO_CVHT', 'SEEN_BY_CVHT', 'SENT_TO_QLDT', 'SEEN_BY_QLDT'].includes(r.status);
+
+    // Điểm điều chỉnh từng tiêu chí (từ parsed object hoặc JSON string)
+    let adjScores = {};
+    try {
+      if (r.adjustedScores && typeof r.adjustedScores === 'object') adjScores = r.adjustedScores;
+      else if (r.adjustedScoresJson) adjScores = JSON.parse(r.adjustedScoresJson);
+    } catch (e) {}
 
     let body = '';
     if (r.reportKind === 'CVHT_TONG_HOP') {
@@ -3694,6 +3699,23 @@
       if (isNew) {
         body = `<div class="nn-criteria-list">${SEED.criteriaNN.map((c) => {
           const fd = f[c.id] || {};
+          const origPt = fd.point ?? 0;
+          const adjPt = adjScores[c.id] != null ? adjScores[c.id] : origPt;
+          const hasAdj = adjScores[c.id] != null && Number(adjScores[c.id]) !== Number(origPt);
+          const scoreHtml = isCvhtReview
+            ? `<div class="nn-criterion-score adj-input-wrap">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Tự chấm: ${origPt}/${c.max}</div>
+                <div style="display:flex;align-items:center;gap:3px">
+                  <input type="number" data-adj-c="${c.id}" min="0" max="${c.max}" step="0.5"
+                    value="${adjPt}" oninput="window._adjUpdate && window._adjUpdate()"
+                    style="width:48px;text-align:center;padding:3px 4px;border:1.5px solid var(--primary);border-radius:6px;font-size:15px;font-weight:700" />
+                  <span style="font-size:13px;color:var(--muted)">/${c.max}</span>
+                </div>
+              </div>`
+            : `<div class="nn-criterion-score${hasAdj ? ' has-adj' : ''}">
+                <strong>${hasAdj ? adjPt : origPt}</strong><span>/${c.max}</span>
+                ${hasAdj ? `<small style="display:block;font-size:10px;color:var(--muted);text-decoration:line-through">${origPt}/${c.max}</small>` : ''}
+              </div>`;
           return `<article class="nn-criterion">
             <header class="nn-criterion-head">
               <div class="nn-criterion-title">
@@ -3703,7 +3725,7 @@
                   <p class="nn-criterion-desc">${esc(fd.note || '—')}</p>
                 </div>
               </div>
-              <div class="nn-criterion-score"><strong>${fd.point ?? 0}</strong><span>/${c.max}</span></div>
+              ${scoreHtml}
             </header>
           </article>`;
         }).join('')}</div>`;
@@ -3730,12 +3752,30 @@
       const criteria = r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
       body = criteria.map((c) => {
         const fd = r.formData?.[c.id] || {};
+        const origPt = fd.point ?? 0;
+        const adjPt = adjScores[c.id] != null ? adjScores[c.id] : origPt;
+        const hasAdj = adjScores[c.id] != null && Number(adjScores[c.id]) !== Number(origPt);
+        const scoreHtml = isCvhtReview
+          ? `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:90px;text-align:center">
+              <div style="font-size:11px;color:var(--muted)">Tự chấm: <strong>${origPt}/${c.max}</strong></div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <input type="number" data-adj-c="${c.id}" min="0" max="${c.max}" step="1"
+                  value="${adjPt}" oninput="window._adjUpdate && window._adjUpdate()"
+                  style="width:54px;text-align:center;padding:4px 6px;border:1.5px solid var(--primary);border-radius:6px;font-size:16px;font-weight:700;color:var(--primary)" />
+                <span style="color:var(--muted);font-size:13px">/${c.max}</span>
+              </div>
+              <div style="font-size:10px;color:var(--muted)">Điều chỉnh</div>
+            </div>`
+          : `<div class="score-preview${hasAdj ? ' has-adj' : ''}" style="${hasAdj ? 'border-color:var(--warn)' : ''}">
+              ${hasAdj ? adjPt : origPt}/${c.max}
+              ${hasAdj ? `<small style="display:block;font-size:10px;color:var(--muted);text-decoration:line-through;font-weight:400">${origPt}/${c.max}</small>` : ''}
+            </div>`;
         return `<div class="criterion"><div class="criterion-head">
           <div><h3>${c.id}. ${c.title}</h3>
             <div style="font-size:12.5px;color:var(--muted);margin-top:3px">${esc(fd.note || '—')}</div>
             <div style="font-size:13px;margin-top:5px">Giá trị: <strong>${fd.value}${c.type === 'late_count' ? ' lần trễ' : '%'}</strong></div>
           </div>
-          <div class="score-preview">${fd.point ?? 0}/${c.max}</div>
+          ${scoreHtml}
         </div></div>`;
       }).join('');
       if (r.activityNote || r.summaryNote) {
@@ -3773,7 +3813,7 @@
         <div>
           <h2>${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</h2>
           <p>${esc(cls?.code || '')} · <strong>${esc(ctx.subjectName)}</strong>${ctx.subjectCode ? ` (${esc(ctx.subjectCode)})` : ''} · ${esc(Curriculum.semesterLabel(ctx.semesterId))} · ${userName(r.reporterId)} · ${Scoring.fmtDateTime(r.createdAt)} · ${statusBadge(r)}</p>
-          ${r.adjustedScore != null ? `<p style="margin-top:6px;font-size:.8rem"><span class="badge badge-warn">Điểm đã điều chỉnh bởi CVHT: ${r.adjustedScore}/${maxScore}</span> (Gốc: ${r.totalScore ?? '—'}) ${r.adjustReason ? `· ${esc(r.adjustReason)}` : ''}</p>` : ''}
+          ${r.adjustedScore != null ? `<p style="margin-top:6px;font-size:.8rem"><span class="badge badge-warn">Điểm CVHT điều chỉnh: ${r.adjustedScore}/${maxScore}</span> (Tự chấm: ${r.totalScore ?? '—'}) ${r.adjustReason ? `· ${esc(r.adjustReason)}` : ''}</p>` : ''}
         </div>
         ${displayScore != null ? `<div class="score-ring" style="--p:${r.reportKind === 'LOP_TRUONG_NN' ? (Number(displayScore) / 10) * 100 : displayScore}%"><span>${displayScore}${r.reportKind === 'LOP_TRUONG_NN' ? '<small style="font-size:.45em">/10</small>' : ''}</span></div>` : ''}
       </div>
@@ -3783,6 +3823,20 @@
       ${actions}
       <button class="btn btn-ghost" style="margin-top:8px" onclick="App.go('reports')">← Quay lại</button>`;
 
+    // Wire live total update khi CVHT chỉnh điểm từng tiêu chí
+    if (isCvhtReview) {
+      const criteriaForKind = r.reportKind === 'LOP_TRUONG_NN' ? SEED.criteriaNN
+        : r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
+      window._adjUpdate = () => {
+        const total = criteriaForKind.reduce((s, c) => {
+          const inp = document.querySelector(`[data-adj-c="${c.id}"]`);
+          return s + (inp ? Number(inp.value) || 0 : (r.formData?.[c.id]?.point ?? 0));
+        }, 0);
+        const el = $('#adjTotalDisplay');
+        if (el) el.textContent = total;
+      };
+    }
+
     const ack = $('#btnAck');
     if (ack) {
       ack.onclick = () => {
@@ -3790,28 +3844,49 @@
         const nextStatus = { SENT_TO_CVHT: 'SEEN_BY_CVHT', SENT_TO_QLDT: 'SEEN_BY_QLDT' }[r.status] || null;
         const isFirstAck = !!nextStatus;
 
-        const adjRaw = ($('#adjustedScore')?.value || '').trim();
         const adjReason = ($('#adjustReason')?.value || '').trim();
-        const adjScore = adjRaw !== '' ? Number(adjRaw) : null;
         const reviewNote = $('#reviewNote')?.value?.trim() || '';
         const now = new Date().toISOString();
+        const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
+
+        // Thu thập điểm điều chỉnh từng tiêu chí (chỉ cho CVHT)
+        let newAdjScores = null;
+        let computedAdjTotal = null;
+        let hasAnyAdjustment = false;
+        if (isCvhtReview) {
+          const criteriaForKind = r.reportKind === 'LOP_TRUONG_NN' ? SEED.criteriaNN
+            : r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
+          newAdjScores = {};
+          criteriaForKind.forEach((c) => {
+            const inp = document.querySelector(`[data-adj-c="${c.id}"]`);
+            const origPt = r.formData?.[c.id]?.point ?? 0;
+            const val = inp ? Number(inp.value) : origPt;
+            newAdjScores[c.id] = val;
+            if (val !== Number(origPt)) hasAnyAdjustment = true;
+          });
+          computedAdjTotal = Object.values(newAdjScores).reduce((s, v) => s + v, 0);
+        }
 
         Store.update((d) => {
           const item = d.reports.find((x) => x.id === id);
           if (!item) return;
 
-          // Cập nhật ghi chú và điểm điều chỉnh (áp dụng cho cả lần đầu và cập nhật sau)
           item.reviewNote = reviewNote;
           item.reviewerId = user.id;
           if (!item.reviewedAt) item.reviewedAt = now;
 
-          if (adjScore !== null && !isNaN(adjScore)) {
-            item.adjustedScore = adjScore;
-            item.adjustReason = adjReason;
-          } else if (adjRaw === '') {
-            // Nếu xóa trống ô điểm → xóa điều chỉnh (về lại điểm gốc)
-            delete item.adjustedScore;
-            delete item.adjustReason;
+          // Lưu điểm điều chỉnh từng tiêu chí và tổng
+          if (newAdjScores !== null) {
+            if (hasAnyAdjustment) {
+              item.adjustedScoresJson = JSON.stringify(newAdjScores);
+              item.adjustedScore = computedAdjTotal;
+              item.adjustReason = adjReason;
+            } else {
+              // Tất cả điểm giữ nguyên gốc → xóa điều chỉnh
+              delete item.adjustedScoresJson;
+              delete item.adjustedScore;
+              delete item.adjustReason;
+            }
           }
 
           // Chuyển status lần đầu xác nhận
@@ -3820,10 +3895,10 @@
 
             if (nextStatus === 'SEEN_BY_CVHT') {
               const noteReview = reviewNote ? ` Nhận xét: "${reviewNote.slice(0, 60)}${reviewNote.length > 60 ? '…' : ''}"` : '';
-              const scoreNote = adjScore !== null && !isNaN(adjScore)
-                ? ` Điểm điều chỉnh: ${adjScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100} (gốc: ${r.totalScore ?? '—'}). Lý do: ${adjReason || 'CVHT xem xét lại'}.`
-                : (r.totalScore != null ? ` Điểm gốc được giữ nguyên: ${r.totalScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100}.` : '');
-              const notifyTitle = adjScore !== null ? 'CVHT đã điều chỉnh điểm báo cáo' : 'CVHT đã xem xét báo cáo của bạn';
+              const scoreNote = hasAnyAdjustment && computedAdjTotal != null
+                ? ` Điểm điều chỉnh: ${computedAdjTotal}/${maxScore} (gốc: ${r.totalScore ?? '—'}). Lý do: ${adjReason || 'CVHT xem xét lại'}.`
+                : (r.totalScore != null ? ` Điểm gốc được giữ nguyên: ${r.totalScore}/${maxScore}.` : '');
+              const notifyTitle = hasAnyAdjustment ? 'CVHT đã điều chỉnh điểm báo cáo' : 'CVHT đã xem xét báo cáo của bạn';
               const notifyBody = `${user.name} đã xem xét BC của ${cls?.code}.${scoreNote}${noteReview} Báo cáo đã được ghi nhận.`;
               const stakeholders = [r.reporterId, cls?.ltId, cls?.btId].filter(Boolean);
               [...new Set(stakeholders)].forEach((uid) => {
@@ -3840,20 +3915,20 @@
 
           d.auditLog.unshift({
             id: Store.uid('al'), actorId: user.id, actorName: user.name,
-            action: adjScore !== null ? 'REPORT_SCORE_ADJUST' : (isFirstAck ? 'REPORT_ACK' : 'REPORT_NOTE_UPDATE'),
+            action: hasAnyAdjustment ? 'REPORT_SCORE_ADJUST' : (isFirstAck ? 'REPORT_ACK' : 'REPORT_NOTE_UPDATE'),
             entity: 'Report', entityId: id,
             beforeJson: String(r.totalScore ?? ''),
-            afterJson: adjScore !== null
-              ? JSON.stringify({ adjustedScore: adjScore, reason: adjReason })
+            afterJson: hasAnyAdjustment
+              ? JSON.stringify({ adjustedScore: computedAdjTotal, adjustedScores: newAdjScores, reason: adjReason })
               : (isFirstAck ? 'ACK' : JSON.stringify({ reviewNote })),
             at: now,
           });
         });
 
         if (isFirstAck) {
-          toast(adjScore !== null ? `Đã xác nhận · Điểm điều chỉnh: ${adjScore}` : 'Đã xác nhận · Đã gửi thông báo về lớp');
+          toast(hasAnyAdjustment ? `Đã xác nhận · Điểm điều chỉnh: ${computedAdjTotal}` : 'Đã xác nhận · Đã gửi thông báo về lớp');
         } else {
-          toast('Đã lưu ghi chú');
+          toast(hasAnyAdjustment ? `Đã lưu · Điểm điều chỉnh: ${computedAdjTotal}` : 'Đã lưu ghi chú');
         }
         pageReportDetail(id);
         renderShell();

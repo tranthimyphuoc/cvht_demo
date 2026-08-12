@@ -27,7 +27,7 @@ const SheetsAPI = {
     Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
     Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
     Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'gender', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'active', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
-    Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'adjustedScore', 'adjustReason', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
+    Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'adjustedScore', 'adjustedScoresJson', 'adjustReason', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],
     Visits: ['id', 'classId', 'cvhtId', 'visitDate', 'observation', 'createdAt', 'demoTag'],
     AtRiskNotes: ['id', 'studentId', 'cvhtId', 'note', 'status', 'createdAt'],
     Escalations: ['id', 'studentId', 'classId', 'cvhtId', 'reason', 'status', 'notesJson', 'resolveNote', 'resolvedAt', 'resolvedBy', 'resolvedByName', 'createdAt'],
@@ -108,6 +108,7 @@ const SheetsAPI = {
       if (k === 'formDataJson') v = this.jsonStr(o.formDataJson ?? o.formData);
       else if (k === 'attachmentsJson') v = this.jsonStr(o.attachmentsJson ?? o.attachments);
       else if (k === 'linkedReportIdsJson') v = this.jsonStr(o.linkedReportIdsJson ?? o.linkedReportIds);
+      else if (k === 'adjustedScoresJson') v = o.adjustedScoresJson != null ? o.adjustedScoresJson : (o.adjustedScores ? this.jsonStr(o.adjustedScores) : '');
       else if (k === 'notesJson') v = this.jsonStr(o.notesJson ?? o.notes);
       else if (k === 'scoresJson') v = this.jsonStr(o.scoresJson ?? o.scores);
       else if (k === 'semestersJson') v = this.jsonStr(o.semestersJson ?? o.semesters);
@@ -148,7 +149,9 @@ const SheetsAPI = {
       o.formData = this.jsonParse(o.formDataJson, {});
       o.attachments = this.jsonParse(o.attachmentsJson, []);
       o.linkedReportIds = this.jsonParse(o.linkedReportIdsJson, []);
+      o.adjustedScores = this.jsonParse(o.adjustedScoresJson, null);
       o.totalScore = o.totalScore === '' || o.totalScore == null ? null : Number(o.totalScore);
+      o.adjustedScore = o.adjustedScore === '' || o.adjustedScore == null ? null : Number(o.adjustedScore);
       o.isLate = this.bool(o.isLate, false);
       o.demoTag = this.bool(o.demoTag, false);
     }

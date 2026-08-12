@@ -693,6 +693,21 @@ tr:hover td { background: rgba(200,16,46,.015); }
   border-radius: var(--radius-sm); background: var(--brand-soft);
   color: var(--brand); font-weight: 800; font-size: 1rem;
 }
+.score-preview.has-adj {
+  background: var(--warn-bg, #fef9ec);
+  color: var(--warn, #b45309);
+  border: 1.5px solid var(--warn, #b45309);
+}
+.nn-criterion-score.has-adj {
+  background: var(--warn-bg, #fef9ec);
+  color: var(--warn, #b45309);
+  border: 1.5px solid var(--warn, #b45309);
+}
+.adj-input-wrap {
+  flex-shrink: 0;
+  min-width: 80px;
+  text-align: center;
+}
 
 /* BC chuyên cần NN — 5 tiêu chí */
 .nn-report-hero {
