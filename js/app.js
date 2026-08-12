@@ -713,7 +713,6 @@
       { id: 'report-bt', label: 'BC hoạt động', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
-      { id: 'notifications', label: 'Thông báo', icon: '◉' },
       { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     LOP_TRUONG: [
@@ -723,7 +722,6 @@
       { id: 'report-lt', label: 'BC gửi CVHT', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
-      { id: 'notifications', label: 'Thông báo', icon: '◉' },
       { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     LOP_TRUONG_NN: [
@@ -733,35 +731,30 @@
       { id: 'report-nn', label: 'BC chuyên cần', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
-      { id: 'notifications', label: 'Thông báo', icon: '◉' },
       { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     CVHT: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp phụ trách', icon: '▦' },
 
-      { group: 'Báo cáo', collapse: true, routes: ['inbox', 'report-cvht', 'reports', 'rpoint'] },
+      { group: 'Báo cáo', collapse: true, routes: ['inbox', 'report-cvht', 'reports', 'rpoint', 'visits'] },
       { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'lt' },
       { id: 'report-cvht', label: 'BC Tổng hợp', icon: '✎' },
       { id: 'rpoint', label: 'R-Point NN', icon: '★' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
+      { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
 
       { group: 'Theo dõi sinh viên', collapse: true, routes: ['at-risk', 'counseling', 'escalations'] },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
       { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
 
-      { group: 'Hoạt động', collapse: true, routes: ['visits'] },
-      { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
-
-      { id: 'notifications', label: 'Thông báo', icon: '◉' },
       { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
     QLDT: [
       { group: 'Điều hành' },
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'cvht' },
-      { id: 'notifications', label: 'Thông báo', icon: '◉' },
 
       { group: 'Lớp · Cơ sở' },
       { id: 'classes', label: 'Danh sách lớp', icon: '▦', clearClassFilters: true },
@@ -982,10 +975,19 @@
     $('#btnLogout').onclick = () => { Store.clearSession(); location.href = 'index.html'; };
 
     const cd = Scoring.formatCountdown(Scoring.getWeekDeadline());
+    const unreadCount = ((db().notifications || []).filter((n) => n.userId === user.id && !n.read)).length;
     $('#topbarActions').innerHTML = `
       <span class="badge badge-brand">${ROLE_LABELS[role()]}</span>
       <div class="deadline-pill ${cd.urgent ? 'urgent' : ''}">⏱ ${cd.text} · T6 23:00</div>
+      <button class="bell-btn" id="bellBtn" aria-label="Thông báo" title="Thông báo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        ${unreadCount > 0 ? `<span class="bell-badge">${unreadCount > 9 ? '9+' : unreadCount}</span>` : ''}
+      </button>
     `;
+    $('#bellBtn').onclick = () => { navigate('notifications'); };
   }
 
   function navigate(path) { location.hash = path; }
