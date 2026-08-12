@@ -1798,6 +1798,42 @@
             <div class="hint">${closedEsc.length}/${totalEsc} case đã đóng</div>
           </div>
         </div>
+        ${pending.length > 0 ? `
+        <div class="panel" style="margin-bottom:18px;border-left:3px solid var(--warn)">
+          <div class="panel-head">
+            <h2>Báo cáo chờ bạn xem xét (${pending.length})</h2>
+            <button class="btn btn-warn btn-sm" onclick="App.go('inbox')">Vào hộp thư →</button>
+          </div>
+          <div style="padding:0 18px 14px">
+            ${pending.slice(0, 5).map((rpt) => {
+              const kindLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)' }[rpt.reportKind] || rpt.reportKind;
+              return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft)">
+                <div>
+                  <strong style="font-size:13px">${esc(classById(rpt.classId)?.code || '—')}</strong>
+                  <span class="badge badge-warn" style="margin-left:6px">${esc(kindLabel)}</span>
+                  <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${esc(shortName(rpt.reporterId))} · ${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="App.go('reports/${rpt.id}')">Xem →</button>
+              </div>`;
+            }).join('')}
+            ${pending.length > 5 ? `<div style="font-size:12px;color:var(--muted);padding-top:8px">...và ${pending.length - 5} báo cáo khác</div>` : ''}
+          </div>
+        </div>` : ''}
+
+        ${(() => {
+          const notVisited = classes.filter((c) => !recentVisitClassIds.has(c.id));
+          if (!notVisited.length) return '';
+          return `<div class="panel" style="margin-bottom:18px;border-left:3px solid var(--info)">
+            <div class="panel-head">
+              <h2>Lớp chưa vào trong 2 tuần qua (${notVisited.length}/${classes.length})</h2>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Ghi lịch vào lớp →</button>
+            </div>
+            <div style="padding:0 18px 14px;display:flex;flex-wrap:wrap;gap:8px">
+              ${notVisited.map((c) => `<span class="badge badge-muted" style="cursor:pointer;font-size:12px;padding:4px 10px" onclick="App.go('classes/${c.id}')">${esc(c.code)}</span>`).join('')}
+            </div>
+          </div>`;
+        })()}
+
         <div class="grid-2">
           <div class="panel">
             <div class="panel-head">
@@ -1841,15 +1877,17 @@
           <div class="panel">
             <div class="panel-head"><h2>Lớp của bạn</h2><button class="btn btn-ghost btn-sm" onclick="App.go('classes')">Tất cả</button></div>
             <div class="table-wrap"><table>
-              <thead><tr><th>Mã lớp</th><th>Môn</th><th>SV nguy cơ</th></tr></thead>
+              <thead><tr><th>Mã lớp</th><th>Môn</th><th>SV nguy cơ</th><th>Vào lớp</th></tr></thead>
               <tbody>${classes.slice(0, 8).map((c) => {
                 const classAtRisk = atRisk.filter((s) => s.classId === c.id).length;
+                const visited = recentVisitClassIds.has(c.id);
                 return `<tr style="cursor:pointer" onclick="App.go('classes/${c.id}')">
                   <td><strong>${esc(c.code)}</strong></td>
                   <td style="font-size:12px">${esc(subjectOf(c))}</td>
                   <td>${classAtRisk > 0 ? `<span class="badge badge-danger">${classAtRisk}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+                  <td>${visited ? '<span style="color:var(--ok);font-size:12px">✓ Đã vào</span>' : '<span style="color:var(--warn);font-size:12px">Chưa</span>'}</td>
                 </tr>`;
-              }).join('') || '<tr><td colspan="3" class="empty">Chưa có lớp</td></tr>'}
+              }).join('') || '<tr><td colspan="4" class="empty">Chưa có lớp nào được gán</td></tr>'}
               </tbody>
             </table></div>
             <div style="padding:10px 16px;border-top:1px solid var(--line-soft);display:flex;gap:6px;flex-wrap:wrap">
@@ -3552,11 +3590,11 @@
         </div>
         <div class="panel-body">
           <div class="field"><label>Ghi chú xem xét (nội bộ)</label>
-            <textarea id="reviewNote" rows="2" placeholder="Nhận xét về nội dung, minh chứng, tính chính xác của báo cáo…">${esc(r.reviewNote || '')}</textarea>
+            <textarea id="reviewNote" rows="3" placeholder="Nhận xét về nội dung, minh chứng, tính chính xác của báo cáo…">${esc(r.reviewNote || '')}</textarea>
           </div>
           <details class="score-adjust-section" style="margin-bottom:14px">
             <summary style="cursor:pointer;font-size:.875rem;font-weight:600;color:var(--ink);padding:8px 0">
-              ✏️ Điều chỉnh điểm tự chấm (nếu minh chứng chưa chính xác)
+              ✏ Điều chỉnh điểm tự chấm (nếu minh chứng chưa chính xác)
             </summary>
             <div style="padding:12px;background:var(--bg);border-radius:8px;margin-top:8px">
               <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc do LT/BT tự chấm: <strong>${origScore}/${maxScore}</strong>. Nếu minh chứng không đủ căn cứ, CVHT có thể điều chỉnh lại.</p>
@@ -3566,7 +3604,7 @@
                     value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
                 </div>
                 <div class="field"><label>Lý do điều chỉnh</label>
-                  <input type="text" id="adjustReason" value=""
+                  <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
                     placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
                 </div>
               </div>
@@ -3579,10 +3617,58 @@
           </div>
         </div></div>`;
     }
+    // Báo cáo CVHT đã xem xét (SEEN_BY_CVHT hoặc đã gửi lên QLĐT) — hiển thị ghi chú + cho phép cập nhật
+    if (role() === 'CVHT' && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind)
+        && ['SEEN_BY_CVHT', 'SENT_TO_QLDT', 'SEEN_BY_QLDT'].includes(r.status)) {
+      const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
+      const origScore = r.totalScore != null ? r.totalScore : '—';
+      const adjScore = r.adjustedScore != null ? r.adjustedScore : '';
+      actions = `<div class="panel">
+        <div class="panel-head">
+          <h2>Ghi chú của bạn về báo cáo này</h2>
+          <span style="font-size:12px;color:var(--ok)">✓ Đã xem xét ${r.reviewedAt ? '· ' + Scoring.fmtDateTime(r.reviewedAt) : ''}</span>
+        </div>
+        <div class="panel-body">
+          ${r.adjustedScore != null ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--warn-bg,#fef9ec);border-left:3px solid var(--warn);border-radius:6px;font-size:.875rem">
+            <strong>Điểm đã điều chỉnh: ${r.adjustedScore}/${maxScore}</strong> (Gốc: ${origScore})
+            ${r.adjustReason ? `<span style="color:var(--muted)"> · Lý do: ${esc(r.adjustReason)}</span>` : ''}
+          </div>` : ''}
+          <div class="field"><label>Ghi chú xem xét (có thể cập nhật thêm)</label>
+            <textarea id="reviewNote" rows="3" placeholder="Nhận xét, lưu ý nội bộ về báo cáo này…">${esc(r.reviewNote || '')}</textarea>
+          </div>
+          <details class="score-adjust-section" style="margin-bottom:14px" ${adjScore !== '' ? 'open' : ''}>
+            <summary style="cursor:pointer;font-size:.875rem;font-weight:600;color:var(--ink);padding:8px 0">
+              ✏ Điều chỉnh / cập nhật điểm tự chấm
+            </summary>
+            <div style="padding:12px;background:var(--bg);border-radius:8px;margin-top:8px">
+              <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc: <strong>${origScore}/${maxScore}</strong>.</p>
+              <div class="grid-2">
+                <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
+                  <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
+                    value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
+                </div>
+                <div class="field"><label>Lý do điều chỉnh</label>
+                  <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
+                    placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
+                </div>
+              </div>
+            </div>
+          </details>
+          <button class="btn btn-primary btn-sm" id="btnAck">Lưu cập nhật ghi chú</button>
+        </div></div>`;
+    }
     if (role() === 'QLDT' && r.reportKind === 'CVHT_TONG_HOP' && r.status === 'SENT_TO_QLDT') {
       actions = `<div class="panel"><div class="panel-body">
-        <div class="field"><label>Ghi chú QLĐT</label><textarea id="reviewNote" rows="2"></textarea></div>
+        <div class="field"><label>Ghi chú QLĐT</label><textarea id="reviewNote" rows="2" placeholder="Nhận xét, lưu ý về báo cáo tổng hợp này…">${esc(r.reviewNote || '')}</textarea></div>
         <button class="btn btn-ok" id="btnAck">Xác nhận đã nắm</button>
+      </div></div>`;
+    }
+    // QLĐT đã xem — cho phép cập nhật ghi chú thêm
+    if (role() === 'QLDT' && r.reportKind === 'CVHT_TONG_HOP' && r.status === 'SEEN_BY_QLDT') {
+      actions = `<div class="panel"><div class="panel-body">
+        <div style="font-size:12px;color:var(--ok);margin-bottom:10px">✓ QLĐT đã xác nhận ${r.reviewedAt ? '· ' + Scoring.fmtDateTime(r.reviewedAt) : ''}</div>
+        <div class="field"><label>Cập nhật ghi chú QLĐT</label><textarea id="reviewNote" rows="2" placeholder="Ghi chú bổ sung…">${esc(r.reviewNote || '')}</textarea></div>
+        <button class="btn btn-primary btn-sm" id="btnAck">Lưu ghi chú</button>
       </div></div>`;
     }
 
@@ -3697,11 +3783,10 @@
     const ack = $('#btnAck');
     if (ack) {
       ack.onclick = () => {
-        const next = {
-          SENT_TO_CVHT: 'SEEN_BY_CVHT',
-          SENT_TO_QLDT: 'SEEN_BY_QLDT',
-        }[r.status];
-        if (!next) return;
+        // Xác định status tiếp theo (null = chỉ cập nhật ghi chú, không đổi status)
+        const nextStatus = { SENT_TO_CVHT: 'SEEN_BY_CVHT', SENT_TO_QLDT: 'SEEN_BY_QLDT' }[r.status] || null;
+        const isFirstAck = !!nextStatus;
+
         const adjRaw = ($('#adjustedScore')?.value || '').trim();
         const adjReason = ($('#adjustReason')?.value || '').trim();
         const adjScore = adjRaw !== '' ? Number(adjRaw) : null;
@@ -3711,51 +3796,62 @@
         Store.update((d) => {
           const item = d.reports.find((x) => x.id === id);
           if (!item) return;
-          item.status = next;
-          item.reviewedAt = now;
-          item.reviewerId = user.id;
+
+          // Cập nhật ghi chú và điểm điều chỉnh (áp dụng cho cả lần đầu và cập nhật sau)
           item.reviewNote = reviewNote;
+          item.reviewerId = user.id;
+          if (!item.reviewedAt) item.reviewedAt = now;
+
           if (adjScore !== null && !isNaN(adjScore)) {
             item.adjustedScore = adjScore;
             item.adjustReason = adjReason;
-            item.reviewNote = item.reviewNote
-              ? `${item.reviewNote} [Điều chỉnh điểm: ${adjScore} — ${adjReason || 'CVHT xem xét'}]`
-              : `[Điều chỉnh điểm: ${adjScore} — ${adjReason || 'CVHT xem xét'}]`;
+          } else if (adjRaw === '') {
+            // Nếu xóa trống ô điểm → xóa điều chỉnh (về lại điểm gốc)
+            delete item.adjustedScore;
+            delete item.adjustReason;
           }
 
-          // ── Thông báo khép kín: gửi đến LT, BT và CVHT của lớp ──
-          if (next === 'SEEN_BY_CVHT') {
-            // CVHT xác nhận báo cáo của LT/BT → thông báo lại cho người nộp + LT + BT
-            const noteReview = reviewNote ? ` Nhận xét: "${reviewNote.slice(0, 60)}${reviewNote.length > 60 ? '…' : ''}"` : '';
-            const scoreNote = adjScore !== null && !isNaN(adjScore)
-              ? ` Điểm điều chỉnh: ${adjScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100} (gốc: ${r.totalScore ?? '—'}). Lý do: ${adjReason || 'CVHT xem xét lại minh chứng'}.`
-              : (r.totalScore != null ? ` Điểm gốc được giữ nguyên: ${r.totalScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100}.` : '');
-            const notifyTitle = adjScore !== null ? 'CVHT đã điều chỉnh điểm báo cáo' : 'CVHT đã xem xét báo cáo của bạn';
-            const notifyBody = `${user.name} đã xem xét BC của ${cls?.code}.${scoreNote}${noteReview} Báo cáo đã được ghi nhận.`;
-            // Thông báo người nộp BC (reporterId) + LT + BT trong lớp (dedup bằng Set)
-            const stakeholders = [r.reporterId, cls?.ltId, cls?.btId].filter(Boolean);
-            [...new Set(stakeholders)].forEach((uid) => {
-              d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: notifyTitle, body: notifyBody, read: false, createdAt: now });
-            });
-          } else if (next === 'SEEN_BY_QLDT') {
-            // QLĐT xác nhận báo cáo tổng hợp của CVHT → thông báo lại cho CVHT
-            const noteReview = reviewNote ? ` Ghi chú: "${reviewNote.slice(0, 80)}${reviewNote.length > 80 ? '…' : ''}"` : '';
-            const notifyBody = `QLĐT (${user.name}) đã xem xét báo cáo tổng hợp của bạn về ${cls?.code}.${noteReview} Báo cáo đã được ghi nhận.`;
-            cvhtNotifyIds(cls?.cvhtId).forEach((uid) => {
-              d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: 'QLĐT đã xem xét BC tổng hợp', body: notifyBody, read: false, createdAt: now });
-            });
+          // Chuyển status lần đầu xác nhận
+          if (isFirstAck) {
+            item.status = nextStatus;
+
+            if (nextStatus === 'SEEN_BY_CVHT') {
+              const noteReview = reviewNote ? ` Nhận xét: "${reviewNote.slice(0, 60)}${reviewNote.length > 60 ? '…' : ''}"` : '';
+              const scoreNote = adjScore !== null && !isNaN(adjScore)
+                ? ` Điểm điều chỉnh: ${adjScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100} (gốc: ${r.totalScore ?? '—'}). Lý do: ${adjReason || 'CVHT xem xét lại'}.`
+                : (r.totalScore != null ? ` Điểm gốc được giữ nguyên: ${r.totalScore}/${r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100}.` : '');
+              const notifyTitle = adjScore !== null ? 'CVHT đã điều chỉnh điểm báo cáo' : 'CVHT đã xem xét báo cáo của bạn';
+              const notifyBody = `${user.name} đã xem xét BC của ${cls?.code}.${scoreNote}${noteReview} Báo cáo đã được ghi nhận.`;
+              const stakeholders = [r.reporterId, cls?.ltId, cls?.btId].filter(Boolean);
+              [...new Set(stakeholders)].forEach((uid) => {
+                d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: notifyTitle, body: notifyBody, read: false, createdAt: now });
+              });
+            } else if (nextStatus === 'SEEN_BY_QLDT') {
+              const noteReview = reviewNote ? ` Ghi chú: "${reviewNote.slice(0, 80)}${reviewNote.length > 80 ? '…' : ''}"` : '';
+              const notifyBody = `QLĐT (${user.name}) đã xem xét báo cáo tổng hợp của bạn về ${cls?.code}.${noteReview} Báo cáo đã được ghi nhận.`;
+              cvhtNotifyIds(cls?.cvhtId).forEach((uid) => {
+                d.notifications.unshift({ id: Store.uid('n'), userId: uid, title: 'QLĐT đã xem xét BC tổng hợp', body: notifyBody, read: false, createdAt: now });
+              });
+            }
           }
 
           d.auditLog.unshift({
             id: Store.uid('al'), actorId: user.id, actorName: user.name,
-            action: adjScore !== null ? 'REPORT_SCORE_ADJUST' : 'REPORT_ACK',
+            action: adjScore !== null ? 'REPORT_SCORE_ADJUST' : (isFirstAck ? 'REPORT_ACK' : 'REPORT_NOTE_UPDATE'),
             entity: 'Report', entityId: id,
             beforeJson: String(r.totalScore ?? ''),
-            afterJson: adjScore !== null ? JSON.stringify({ adjustedScore: adjScore, reason: adjReason }) : 'ACK',
+            afterJson: adjScore !== null
+              ? JSON.stringify({ adjustedScore: adjScore, reason: adjReason })
+              : (isFirstAck ? 'ACK' : JSON.stringify({ reviewNote })),
             at: now,
           });
         });
-        toast(adjScore !== null ? `Đã xác nhận · Điểm điều chỉnh: ${adjScore}` : 'Đã xác nhận · Đã gửi thông báo kết quả về lớp');
+
+        if (isFirstAck) {
+          toast(adjScore !== null ? `Đã xác nhận · Điểm điều chỉnh: ${adjScore}` : 'Đã xác nhận · Đã gửi thông báo về lớp');
+        } else {
+          toast('Đã lưu ghi chú');
+        }
         pageReportDetail(id);
         renderShell();
       };
