@@ -709,6 +709,7 @@
     BI_THU: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp của tôi', icon: '▦' },
+      { group: 'Báo cáo', collapse: true, routes: ['report-bt', 'reports'] },
       { id: 'report-bt', label: 'BC hoạt động', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
@@ -718,6 +719,7 @@
     LOP_TRUONG: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp của tôi', icon: '▦' },
+      { group: 'Báo cáo', collapse: true, routes: ['report-lt', 'reports'] },
       { id: 'report-lt', label: 'BC gửi CVHT', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
@@ -727,6 +729,7 @@
     LOP_TRUONG_NN: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp NN của tôi', icon: '▦' },
+      { group: 'Báo cáo', collapse: true, routes: ['report-nn', 'reports'] },
       { id: 'report-nn', label: 'BC chuyên cần', icon: '✎' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
@@ -736,14 +739,21 @@
     CVHT: [
       { id: 'dashboard', label: 'Tổng quan', icon: '▣' },
       { id: 'classes', label: 'Lớp phụ trách', icon: '▦' },
+
+      { group: 'Báo cáo', collapse: true, routes: ['inbox', 'report-cvht', 'reports', 'rpoint'] },
       { id: 'inbox', label: 'Nhận báo cáo', icon: '✉', badge: 'lt' },
-      { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
       { id: 'report-cvht', label: 'BC Tổng hợp', icon: '✎' },
       { id: 'rpoint', label: 'R-Point NN', icon: '★' },
       { id: 'reports', label: 'Lịch sử BC', icon: '☰' },
+
+      { group: 'Theo dõi sinh viên', collapse: true, routes: ['at-risk', 'counseling', 'escalations'] },
       { id: 'at-risk', label: 'SV nguy cơ', icon: '⚠' },
       { id: 'counseling', label: 'Lịch sử CSSV', icon: '◷' },
       { id: 'escalations', label: 'Chuyển QLĐT', icon: '↑' },
+
+      { group: 'Hoạt động', collapse: true, routes: ['visits'] },
+      { id: 'visits', label: 'Lịch vào lớp', icon: '◎' },
+
       { id: 'notifications', label: 'Thông báo', icon: '◉' },
       { id: 'change-password', label: 'Đổi mật khẩu', icon: '⚿' },
     ],
@@ -4235,9 +4245,7 @@
                 : '—'}</td>
               <td style="display:flex;gap:5px;flex-wrap:wrap">
                 ${canEditStudentStatus() ? `<button class="btn btn-ghost btn-sm" data-status-sv="${s.id}">Cập nhật</button>` : ''}
-                ${isManager ? `<button class="btn btn-ghost btn-sm" onclick="App.counsel('${s.id}')">Ghi tư vấn</button>` : ''}
                 ${role() === 'CVHT' || isAdmin() ? `<button class="btn btn-warn btn-sm" onclick="App.escalate('${s.id}')">Chuyển QLĐT</button>` : ''}
-                ${isManager ? `<button class="btn btn-ok btn-sm" onclick="App.resolveRisk('${s.id}')">Ổn định lại</button>` : ''}
               </td>
             </tr>`).join('') : '<tr><td colspan="6"><div class="empty">Chưa có SV nguy cơ / có vấn đề — bấm + Ghi nhận trạng thái</div></td></tr>'}
           </tbody>
