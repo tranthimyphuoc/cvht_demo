@@ -3579,6 +3579,18 @@
     if (!canAccessReport(r)) return denyAccess('Bạn không được xem báo cáo này');
     const cls = classById(r.classId);
 
+    // CVHT đang xem xét và có thể điều chỉnh điểm từng phần
+    const isCvhtReview = role() === 'CVHT'
+      && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind)
+      && ['SENT_TO_CVHT', 'SEEN_BY_CVHT', 'SENT_TO_QLDT', 'SEEN_BY_QLDT'].includes(r.status);
+
+    // Điểm điều chỉnh từng tiêu chí (từ parsed object hoặc JSON string)
+    let adjScores = {};
+    try {
+      if (r.adjustedScores && typeof r.adjustedScores === 'object') adjScores = r.adjustedScores;
+      else if (r.adjustedScoresJson) adjScores = JSON.parse(r.adjustedScoresJson);
+    } catch (e) {}
+
     let actions = '';
     if (canEditDraft(r)) {
       actions = `<div class="panel"><div class="panel-head"><h2>Bản nháp</h2></div>
@@ -3667,18 +3679,6 @@
         <button class="btn btn-primary btn-sm" id="btnAck">Lưu ghi chú</button>
       </div></div>`;
     }
-
-    // CVHT đang xem xét và có thể điều chỉnh điểm từng phần
-    const isCvhtReview = role() === 'CVHT'
-      && ['BI_THU', 'LOP_TRUONG', 'LOP_TRUONG_NN'].includes(r.reportKind)
-      && ['SENT_TO_CVHT', 'SEEN_BY_CVHT', 'SENT_TO_QLDT', 'SEEN_BY_QLDT'].includes(r.status);
-
-    // Điểm điều chỉnh từng tiêu chí (từ parsed object hoặc JSON string)
-    let adjScores = {};
-    try {
-      if (r.adjustedScores && typeof r.adjustedScores === 'object') adjScores = r.adjustedScores;
-      else if (r.adjustedScoresJson) adjScores = JSON.parse(r.adjustedScoresJson);
-    } catch (e) {}
 
     let body = '';
     if (r.reportKind === 'CVHT_TONG_HOP') {
