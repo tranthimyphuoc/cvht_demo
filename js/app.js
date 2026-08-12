@@ -4286,8 +4286,10 @@
     setPage(isManager ? 'Quản lý SV nguy cơ' : 'Theo dõi SV nguy cơ', `${risk.length} nguy cơ · ${watch.length} có vấn đề`);
     $('#content').innerHTML = `
       <div class="panel" style="margin-bottom:14px"><div class="panel-body" style="padding:12px 18px;font-size:.9rem;color:var(--muted)">
-        ${isManager
-          ? '<strong style="color:var(--ink)">Luồng xử lý:</strong> Ghi nhận trạng thái → Tư vấn → Nếu không cải thiện sau 48h: <strong style="color:var(--ink)">Chuyển QLĐT</strong>. Khi SV ổn định trở lại, bấm <strong style="color:var(--ink)">Ổn định lại</strong>. Mọi thay đổi lưu ở Lịch sử CSSV.'
+        ${role() === 'CVHT'
+          ? '<strong style="color:var(--ink)">Luồng xử lý:</strong> Ghi nhận trạng thái → Tư vấn → Nếu không cải thiện sau 48h: <strong style="color:var(--ink)">Chuyển QLĐT</strong>. Mọi thay đổi lưu ở Lịch sử CSSV.'
+          : role() === 'QLDT'
+          ? '<strong style="color:var(--ink)">Xem và theo dõi:</strong> Danh sách SV nguy cơ từ tất cả lớp. Bấm <strong style="color:var(--ink)">Cập nhật</strong> để ghi nhận tình trạng xử lý.'
           : 'Bấm <strong style="color:var(--ink)">+ Ghi nhận trạng thái</strong> để đánh dấu SV gặp vấn đề. Chọn nguyên nhân chính để CVHT dễ theo dõi và làm báo cáo.'}
       </div></div>
       <div class="kpi-grid kpi-grid-3" style="margin-bottom:14px">
@@ -4315,7 +4317,7 @@
                 : '—'}</td>
               <td style="display:flex;gap:5px;flex-wrap:wrap">
                 ${canEditStudentStatus() ? `<button class="btn btn-ghost btn-sm" data-status-sv="${s.id}">Cập nhật</button>` : ''}
-                ${role() === 'CVHT' || isAdmin() ? `<button class="btn btn-warn btn-sm" onclick="App.escalate('${s.id}')">Chuyển QLĐT</button>` : ''}
+                ${role() === 'CVHT' ? `<button class="btn btn-warn btn-sm" onclick="App.escalate('${s.id}')">Chuyển QLĐT</button>` : ''}
               </td>
             </tr>`).join('') : '<tr><td colspan="6"><div class="empty">Chưa có SV nguy cơ / có vấn đề — bấm + Ghi nhận trạng thái</div></td></tr>'}
           </tbody>
