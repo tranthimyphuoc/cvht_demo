@@ -1283,6 +1283,9 @@
     });
     const returnedCount = returnedStudentIds.size;
 
+    // Hàm pad dùng chung cho cả QLĐT và CVHT dashboard
+    const pad = (n) => String(n).padStart(2, '0');
+
     // Thống kê vào lớp 2 tuần gần nhất (dùng cùng 1 trường date nhất quán)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     const visitDateOf = (v) => (v.visitDate || v.createdAt || '').slice(0, 10);
@@ -1388,8 +1391,6 @@
       const todayJs = new Date();
       const monday = new Date(todayJs);
       monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-      // Dùng local Y-M-D để tránh lệch múi giờ UTC+7
-      const pad = (n) => String(n).padStart(2, '0');
       const weekStartStr = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
 
       const weekReports = (db().reports || []).filter((rpt) => (rpt.createdAt || '').slice(0, 10) >= weekStartStr);
@@ -3602,24 +3603,20 @@
           <div class="field"><label>Ghi chú xem xét (nội bộ)</label>
             <textarea id="reviewNote" rows="3" placeholder="Nhận xét về nội dung, minh chứng, tính chính xác của báo cáo…">${esc(r.reviewNote || '')}</textarea>
           </div>
-          <details class="score-adjust-section" style="margin-bottom:14px">
-            <summary style="cursor:pointer;font-size:.875rem;font-weight:600;color:var(--ink);padding:8px 0">
-              ✏ Điều chỉnh điểm tự chấm (nếu minh chứng chưa chính xác)
-            </summary>
-            <div style="padding:12px;background:var(--bg);border-radius:8px;margin-top:8px">
-              <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc do LT/BT tự chấm: <strong>${origScore}/${maxScore}</strong>. Nếu minh chứng không đủ căn cứ, CVHT có thể điều chỉnh lại.</p>
-              <div class="grid-2">
-                <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
-                  <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
-                    value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
-                </div>
-                <div class="field"><label>Lý do điều chỉnh</label>
-                  <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
-                    placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
-                </div>
+          <div style="padding:14px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft)">
+            <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Điều chỉnh điểm tự chấm</div>
+            <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc do LT/BT tự chấm: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong>. Nếu minh chứng chưa chính xác, CVHT có thể điều chỉnh lại.</p>
+            <div class="grid-2">
+              <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
+                <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
+                  value="${adjScore}" placeholder="Để trống = giữ nguyên điểm gốc" />
+              </div>
+              <div class="field"><label>Lý do điều chỉnh</label>
+                <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
+                  placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
               </div>
             </div>
-          </details>
+          </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ok" id="btnAck">Xác nhận đã đọc &amp; lưu</button>
             <button class="btn btn-primary" onclick="App.go('report-cvht')">Lập BC Tổng hợp →</button>
@@ -3646,24 +3643,20 @@
           <div class="field"><label>Ghi chú xem xét (có thể cập nhật thêm)</label>
             <textarea id="reviewNote" rows="3" placeholder="Nhận xét, lưu ý nội bộ về báo cáo này…">${esc(r.reviewNote || '')}</textarea>
           </div>
-          <details class="score-adjust-section" style="margin-bottom:14px" ${adjScore !== '' ? 'open' : ''}>
-            <summary style="cursor:pointer;font-size:.875rem;font-weight:600;color:var(--ink);padding:8px 0">
-              ✏ Điều chỉnh / cập nhật điểm tự chấm
-            </summary>
-            <div style="padding:12px;background:var(--bg);border-radius:8px;margin-top:8px">
-              <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc: <strong>${origScore}/${maxScore}</strong>.</p>
-              <div class="grid-2">
-                <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
-                  <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
-                    value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
-                </div>
-                <div class="field"><label>Lý do điều chỉnh</label>
-                  <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
-                    placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
-                </div>
+          <div style="padding:14px;background:var(--surface);border-radius:8px;margin-bottom:14px;border:1px solid var(--line-soft)">
+            <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Cập nhật điểm tự chấm</div>
+            <p style="font-size:.825rem;color:var(--muted);margin-bottom:12px">Điểm gốc: <strong style="color:var(--ink)">${origScore}/${maxScore}</strong>.</p>
+            <div class="grid-2">
+              <div class="field"><label>Điểm điều chỉnh (0–${maxScore})</label>
+                <input type="number" id="adjustedScore" min="0" max="${maxScore}" step="${r.reportKind === 'LOP_TRUONG_NN' ? '0.5' : '1'}"
+                  value="${adjScore}" placeholder="Để trống = giữ điểm gốc" />
+              </div>
+              <div class="field"><label>Lý do điều chỉnh</label>
+                <input type="text" id="adjustReason" value="${esc(r.adjustReason || '')}"
+                  placeholder="VD: Ảnh minh chứng không rõ tỷ lệ chuyên cần" />
               </div>
             </div>
-          </details>
+          </div>
           <button class="btn btn-primary btn-sm" id="btnAck">Lưu cập nhật ghi chú</button>
         </div></div>`;
     }
