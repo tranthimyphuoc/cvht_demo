@@ -24,7 +24,9 @@ const SheetsAPI = {
 
   /** Header dòng 1 mỗi tab */
   SCHEMA: {
-    Users: ['id', 'email', 'password', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
+    // password bị loại khỏi danh sách push — chỉ JWT API mới được ghi/đọc password
+    // (tránh localStorage cache cũ ghi đè password đã đổi qua API)
+    Users: ['id', 'email', 'name', 'primaryRole', 'campus', 'initials', 'phone', 'active', 'aliasOf', 'classId', 'updatedAt'],
     Classes: ['id', 'code', 'majorId', 'subject', 'subjectCode', 'campusId', 'programType', 'semester', 'level', 'note', 'studentCount', 'active', 'cvhtId', 'ltId', 'btId', 'gvName', 'tgName'],
     Students: ['id', 'classId', 'name', 'studentCode', 'email', 'phone', 'gender', 'status', 'statusNote', 'riskReason', 'riskLevel', 'enrollStatus', 'active', 'statusUpdatedAt', 'statusUpdatedBy', 'updatedAt'],
     Reports: ['id', 'classId', 'reporterId', 'reportKind', 'reportType', 'weekStart', 'weekEnd', 'semesterId', 'subjectCode', 'subjectName', 'status', 'totalScore', 'isLate', 'formDataJson', 'attachmentsJson', 'summaryNote', 'activityNote', 'linkedReportIdsJson', 'createdAt', 'submittedAt', 'reviewedAt', 'reviewerId', 'reviewNote', 'demoTag'],

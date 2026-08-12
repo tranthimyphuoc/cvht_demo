@@ -478,8 +478,24 @@ function _handleLegacyAction(body, e) {
     const headers = body.headers && body.headers.length
       ? body.headers
       : (SHEET_HEADERS[body.sheet] || Object.keys((body.rows && body.rows[0]) || { id: '' }));
-    writeObjects_(body.sheet, body.rows || [], headers);
-    return jsonResponse_({ ok: true, count: (body.rows || []).length });
+
+    // ── Bảo vệ password: KHÔNG bao giờ cho frontend legacy push ghi đè password ──
+    // Password chỉ được quản lý bởi JWT API (POST /auth/change-password, POST /users/{id}/reset-password).
+    // Frontend localStorage có thể chứa password cũ (cache 10 phút) → nếu push thẳng sẽ revert mật khẩu đã đổi.
+    let rowsToWrite = body.rows || [];
+    if (body.sheet === 'Users') {
+      const existingUsers = sheetToObjects_('Users');
+      const passwordMap = {};
+      existingUsers.forEach(function(u) { if (u.id) passwordMap[u.id] = u.password; });
+      rowsToWrite = rowsToWrite.map(function(r) {
+        return Object.assign({}, r, {
+          password: passwordMap[r.id] !== undefined ? passwordMap[r.id] : (r.password || ''),
+        });
+      });
+    }
+
+    writeObjects_(body.sheet, rowsToWrite, headers);
+    return jsonResponse_({ ok: true, count: rowsToWrite.length });
   }
 
   if (action === 'append') {
