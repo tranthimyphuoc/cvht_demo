@@ -979,11 +979,12 @@
     $('#topbarActions').innerHTML = `
       <span class="badge badge-brand">${ROLE_LABELS[role()]}</span>
       <div class="deadline-pill ${cd.urgent ? 'urgent' : ''}">⏱ ${cd.text} · T6 23:00</div>
-      <button class="bell-btn" id="bellBtn" aria-label="Thông báo" title="Thông báo">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button class="bell-btn${unreadCount > 0 ? ' has-notif' : ''}" id="bellBtn" aria-label="Thông báo">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
+        Thông báo
         ${unreadCount > 0 ? `<span class="bell-badge">${unreadCount > 9 ? '9+' : unreadCount}</span>` : ''}
       </button>
     `;
