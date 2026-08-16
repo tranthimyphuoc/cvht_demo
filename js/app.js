@@ -1872,24 +1872,71 @@
 
       // ── Modal chi tiết KPI ──
       App._kpiDetail = (key) => {
+        // SVG chart helpers
+        const donut = (segs, size = 140) => {
+          const total = segs.reduce((s, x) => s + x.v, 0);
+          const cx = size / 2, cy = size / 2, r = size / 2 - 16;
+          if (total === 0) return `<svg width="${size}" height="${size}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="22"/><text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="13" fill="#9ca3af">—</text></svg>`;
+          let a = -Math.PI / 2;
+          const arcs = segs.filter((s) => s.v > 0).map((s) => {
+            const sw = (s.v / total) * 2 * Math.PI;
+            const x1 = cx + r * Math.cos(a), y1 = cy + r * Math.sin(a);
+            a += sw;
+            const x2 = cx + r * Math.cos(a), y2 = cy + r * Math.sin(a);
+            return `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${sw > Math.PI ? 1 : 0},1 ${x2},${y2}Z" fill="${s.c}"/>`;
+          });
+          const hr = Math.round(r * 0.58);
+          const pct = Math.round(segs[0].v / total * 100);
+          return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+            ${arcs.join('')}
+            <circle cx="${cx}" cy="${cy}" r="${hr}" fill="white"/>
+            <text x="${cx}" y="${cy - 2}" text-anchor="middle" dominant-baseline="middle" font-size="17" font-weight="700" fill="#111">${pct}%</text>
+            <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="9.5" fill="#9ca3af">${segs[0].label || ''}</text>
+          </svg>`;
+        };
+        const legend = (segs, total) => segs.map((s) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="width:10px;height:10px;border-radius:2px;background:${s.c};flex-shrink:0"></span>
+            <span style="font-size:13px;flex:1">${s.label}</span>
+            <strong style="font-size:13px">${s.v}</strong>
+            <span style="font-size:11.5px;color:#9ca3af;width:36px;text-align:right">${total > 0 ? Math.round(s.v / total * 100) : 0}%</span>
+          </div>`).join('');
+        const hbar = (items, maxV) => {
+          const barW = 220;
+          return items.map((it) => {
+            const w = maxV > 0 ? Math.round((it.v / maxV) * barW) : 0;
+            return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
+              <span style="font-size:12px;color:#6b7280;flex:0 0 90px;text-align:right">${it.label}</span>
+              <div style="flex:0 0 ${barW}px;height:16px;background:#f3f4f6;border-radius:4px;overflow:hidden">
+                ${w > 0 ? `<div style="height:100%;width:${w}px;background:${it.c};border-radius:4px"></div>` : ''}
+              </div>
+              <strong style="font-size:12px;min-width:18px">${it.v}</strong>
+            </div>`;
+          }).join('');
+        };
+        const chartRow = (left, right) => `
+          <div style="display:flex;gap:28px;align-items:flex-start;padding:12px 0 18px;border-bottom:1px solid #f3f4f6;margin-bottom:16px;flex-wrap:wrap">
+            ${left} ${right}
+          </div>`;
+        const accord = (items) => `<div class="tab-sections">${items.filter(Boolean).map((it) =>
+          `<details${it.open ? ' open' : ''}><summary style="cursor:pointer;font-size:11.5px;font-weight:700;padding:9px 0;color:${it.color || 'var(--muted)'};text-transform:uppercase;letter-spacing:.06em">${it.label}</summary><div style="padding-bottom:8px">${it.body}</div></details>`
+        ).join('')}</div>`;
+
         const svRow = (s, extra = '') => {
           const cls = classById(s.classId);
           return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${s.classId}')">
             <td><strong>${esc(s.name)}</strong></td>
             <td><span class="badge badge-muted" style="font-size:10px">${esc(cls?.code || '—')}</span></td>
-            <td style="font-size:11.5px;color:var(--muted)">${esc(cls ? (shortName(cls.cvhtId) || '—') : '—')}</td>
-            ${extra}
-          </tr>`;
+            <td style="font-size:11.5px;color:var(--muted)">${shortName(cls?.cvhtId)}</td>${extra}</tr>`;
         };
         const escRow = (e) => {
           const sv = (db().students || []).find((s) => s.id === e.studentId);
           const cls = classById(e.classId);
-          return `<tr style="cursor:pointer" onclick="openModal.close();App.go('escalations')">
+          return `<tr onclick="openModal.close();App.go('escalations')" style="cursor:pointer">
             <td><strong>${esc(sv?.name || '—')}</strong></td>
             <td><span class="badge badge-muted" style="font-size:10px">${esc(cls?.code || '—')}</span></td>
             <td style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(e.createdAt)}</td>
-            <td style="font-size:11.5px">${esc((e.resolveNote || e.note || '').slice(0, 50))}</td>
-          </tr>`;
+            <td style="font-size:11.5px">${esc((e.resolveNote || e.note || '').slice(0, 50))}</td></tr>`;
         };
         const tbl = (head, rows, empty = 'Không có dữ liệu') => `
           <div class="table-wrap"><table class="data-table">
@@ -1897,157 +1944,153 @@
             <tbody>${rows.length > 0 ? rows.join('') : `<tr><td colspan="10" class="empty" style="padding:16px">${empty}</td></tr>`}</tbody>
           </table></div>`;
 
-        const modals = {
-          classes: () => {
-            const grouped = [['HN', hnClasses], ['HCM', hcmClasses]];
-            return { title: `Danh sách lớp phụ trách (${classes.length})`, body: grouped.map(([campus, list]) => `
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 6px">${campus} — ${list.length} lớp</div>
-              ${tbl('<th>Mã lớp</th><th>CVHT</th><th>SV nguy cơ</th>', list.map((c) => {
-                const cnt = atRisk.filter((s) => s.classId === c.id).length;
-                return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${c.id}')">
-                  <td><strong>${esc(c.code)}</strong></td>
-                  <td style="font-size:12px">${shortName(c.cvhtId)}</td>
-                  <td>${cnt > 0 ? `<span class="badge badge-danger">${cnt}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-                </tr>`;
-              }), 'Không có lớp')}`) .join('') };
-          },
-          pending: () => ({
-            title: `Báo cáo chờ xác nhận (${pending.length})`,
-            body: tbl('<th>Lớp</th><th>Loại BC</th><th>Người gửi</th><th>Thời gian</th><th></th>', pending.map((rpt) => {
-              const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT TH' }[rpt.reportKind] || rpt.reportKind;
-              const cls = classById(rpt.classId);
-              return `<tr>
-                <td><strong>${esc(cls?.code || '—')}</strong></td>
-                <td><span class="badge badge-muted">${esc(kLabel)}</span></td>
-                <td style="font-size:12px">${esc(shortName(rpt.reporterId))}</td>
-                <td style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</td>
-                <td><button class="btn btn-primary btn-sm" onclick="openModal.close();App.go('reports/${rpt.id}')">Xem →</button></td>
-              </tr>`;
-            }), 'Không có báo cáo chờ'),
-          }),
-          care: () => {
-            const withCase = atRisk.filter((s) => escalatedStudentIds.has(s.id));
-            const noCase2 = atRisk.filter((s) => !escalatedStudentIds.has(s.id));
-            return { title: `SV được chăm sóc — ${escalatedStudentIds.size}/${totalProcessed} SV từng nguy cơ`, body: `
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px">Đã có case (${withCase.length})</div>
-              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Ghi chú</th>', withCase.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Không có')}
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:14px 0 6px">Chưa có case (${noCase2.length})</div>
-              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Ghi chú</th>', noCase2.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Tất cả SV nguy cơ đã có case')}` };
-          },
-          returnRate: () => {
-            const stillAtRisk = atRisk.filter((s) => !returnedStudentIds.has(s.id));
-            return { title: `Tỷ lệ SV quay lại học — ${returnRate}%`, body: `
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
-                <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">Đã quay lại</div><div class="value" style="font-size:1.3rem">${returnedCount}</div></div>
-                <div class="kpi ${stillAtRisk.length > 0 ? 'danger' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Còn nguy cơ</div><div class="value" style="font-size:1.3rem">${stillAtRisk.length}</div></div>
-                <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Diện đặc thù</div><div class="value" style="font-size:1.3rem">${specialGroupTotal}</div></div>
-              </div>
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px">SV còn nguy cơ (${stillAtRisk.length})</div>
-              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>', stillAtRisk.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Tất cả SV đã ổn định')}` };
-          },
-          returned: () => {
-            const retList = (db().students || []).filter((s) => returnedStudentIds.has(s.id) && studentsInScope().some((x) => x.id === s.id));
-            return { title: `SV quay lại học bình thường (${retList.length})`, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th>', retList.map((s) => svRow(s)), 'Chưa có SV nào quay lại') };
-          },
-          special: () => {
-            const groups = [
-              { label: 'Thôi học', list: thoiHocList, cls: 'danger' },
-              { label: 'Bảo lưu', list: baoLuuList, cls: 'warn' },
-              { label: 'Nghỉ dài hạn', list: nghiDaiHanList, cls: 'info' },
-              { label: 'Đình chỉ', list: dinhChiList, cls: '' },
-            ].filter((g) => g.list.length > 0);
-            return { title: `SV diện đặc thù (${specialGroupTotal})`, body: groups.map((g) => `
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 6px">${g.label} (${g.list.length})</div>
-              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Tình trạng</th>', g.list.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.enrollStatus || '').slice(0, 40))}</td>`)), 'Không có')}`)
-              .join('') };
-          },
-          atRisk: () => ({
-            title: `SV nguy cơ / có vấn đề (${atRisk.length})`,
-            body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Mức</th><th>Lý do</th>', atRisk.map((s) => {
-              const lvl = { HIGH: 'Cao', MEDIUM: 'TB', LOW: 'Thấp' }[s.riskLevel] || '—';
-              const lvlCls = { HIGH: 'badge-danger', MEDIUM: 'badge-warn', LOW: 'badge-muted' }[s.riskLevel] || 'badge-muted';
-              return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${s.classId}')">
-                <td><strong>${esc(s.name)}</strong></td>
-                <td><span class="badge badge-muted" style="font-size:10px">${esc(classById(s.classId)?.code || '—')}</span></td>
-                <td style="font-size:12px">${shortName(classById(s.classId)?.cvhtId)}</td>
-                <td><span class="badge ${lvlCls}">${lvl}</span></td>
-                <td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || s.riskReason || '').slice(0, 45))}</td>
-              </tr>`;
-            }), 'Không có SV nguy cơ'),
-          }),
-          openEsc: () => ({
-            title: `Case QLĐT đang mở (${openEsc.length})`,
-            body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Ghi chú</th>', openEsc.map(escRow), 'Không có case nào đang mở'),
-          }),
-          closedEsc: () => ({
-            title: `Case đã đóng (${closedEsc.length}) — tỷ lệ xử lý ${resolveRate}%`,
-            body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Kết quả</th>', closedEsc.map(escRow), 'Chưa có case nào đóng'),
-          }),
-          noCase: () => {
-            const noCaseList = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id));
-            return { title: `SV nguy cơ chưa có case (${noCaseList.length})`, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>',
-              noCaseList.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)),
-              'Tất cả SV nguy cơ đã được lập case') };
-          },
-        };
-
-        // ── Các modal tổng hợp (từ compact summary rows) ──
         const careRatePct2 = totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0;
         const noCaseCount2 = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length;
+        const stillAtRisk = atRisk.filter((s) => !returnedStudentIds.has(s.id));
+        const retList = (db().students || []).filter((s) => returnedStudentIds.has(s.id) && studentsInScope().some((x) => x.id === s.id));
+        const noCaseList = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id));
+        const withCaseList = atRisk.filter((s) => escalatedStudentIds.has(s.id));
 
-        modals.overview = () => {
-          const m1 = modals.classes(); const m2 = modals.pending(); const m3 = modals.care();
-          return { title: 'Quy mô & vận hành', body: `
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
-              <div class="kpi" style="padding:10px 14px"><div class="label" style="font-size:11px">Tổng lớp</div><div class="value" style="font-size:1.4rem">${classes.length}</div><div class="hint">HN: ${hnClasses.length} · HCM: ${hcmClasses.length}</div></div>
-              <div class="kpi ${pending.length > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">BC chờ xác nhận</div><div class="value" style="font-size:1.4rem">${pending.length}</div></div>
-              <div class="kpi" style="padding:10px 14px"><div class="label" style="font-size:11px">SV được chăm sóc</div><div class="value" style="font-size:1.4rem">${careRatePct2}<small>%</small></div><div class="hint">${escalatedStudentIds.size}/${totalProcessed} SV</div></div>
-            </div>
-            <div class="tab-sections">
-              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Danh sách lớp (${classes.length})</summary>${m1.body}</details>
-              ${pending.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">BC chờ xác nhận (${pending.length})</summary>${m2.body}</details>` : ''}
-              <details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">SV được chăm sóc</summary>${m3.body}</details>
-            </div>` };
-        };
+        const modals = {
+          // ── Quy mô & vận hành ──
+          overview: () => {
+            const campusSegs = [
+              { label: 'HN', v: hnClasses.length, c: '#3b82f6' },
+              { label: 'HCM', v: hcmClasses.length, c: '#f59e0b' },
+            ];
+            const careSegs = [
+              { label: 'Đã có case', v: escalatedStudentIds.size, c: '#10b981' },
+              { label: 'Chưa có case', v: Math.max(0, totalProcessed - escalatedStudentIds.size), c: '#e5e7eb' },
+            ];
+            return { title: 'Quy mô & vận hành', body: `
+              ${chartRow(
+                `<div style="text-align:center">
+                  ${donut(campusSegs, 130)}
+                  <div style="font-size:11.5px;color:#6b7280;margin-top:6px">Phân bổ lớp theo cơ sở</div>
+                  <div style="margin-top:10px">${legend(campusSegs, classes.length)}</div>
+                </div>`,
+                `<div style="flex:1;min-width:200px">
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af;margin-bottom:10px">SV được chăm sóc (${careRatePct2}%)</div>
+                  ${donut(careSegs, 130)}
+                  <div style="margin-top:10px">${legend(careSegs, totalProcessed)}</div>
+                  ${pending.length > 0 ? `<div style="margin-top:12px;padding:8px 12px;background:#fef9ec;border-left:3px solid #f59e0b;border-radius:6px;font-size:12px"><strong style="color:#b45309">${pending.length} báo cáo</strong> đang chờ xác nhận</div>` : ''}
+                </div>`
+              )}
+              ${accord([
+                { label: `Danh sách lớp (${classes.length})`, open: true, body: [['HN', hnClasses], ['HCM', hcmClasses]].map(([campus, list]) => `
+                  <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin:10px 0 5px">${campus} — ${list.length} lớp</div>
+                  ${tbl('<th>Mã lớp</th><th>CVHT</th><th>SV nguy cơ</th>', list.map((c) => {
+                    const cnt = atRisk.filter((s) => s.classId === c.id).length;
+                    return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${c.id}')">
+                      <td><strong>${esc(c.code)}</strong></td><td style="font-size:12px">${shortName(c.cvhtId)}</td>
+                      <td>${cnt > 0 ? `<span class="badge badge-danger">${cnt}</span>` : '<span style="color:#9ca3af">—</span>'}</td></tr>`;
+                  }), 'Không có lớp')}`).join('') },
+                pending.length > 0 && { label: `BC chờ xác nhận (${pending.length})`, color: 'var(--warn)', body: tbl('<th>Lớp</th><th>Loại BC</th><th>Người gửi</th><th>Thời gian</th><th></th>', pending.map((rpt) => {
+                  const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT TH' }[rpt.reportKind] || rpt.reportKind;
+                  return `<tr><td><strong>${esc(classById(rpt.classId)?.code || '—')}</strong></td>
+                    <td><span class="badge badge-muted">${esc(kLabel)}</span></td>
+                    <td style="font-size:12px">${shortName(rpt.reporterId)}</td>
+                    <td style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</td>
+                    <td><button class="btn btn-primary btn-sm" onclick="openModal.close();App.go('reports/${rpt.id}')">Xem →</button></td></tr>`;
+                }), 'Không có') },
+              ])}` };
+          },
 
-        modals.effectiveness = () => {
-          const m1 = modals.returnRate(); const m2 = modals.returned(); const m3 = modals.special();
-          return { title: 'Hiệu quả mô hình hỗ trợ SV', body: `
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
-              <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : 'danger'}" style="padding:10px 14px"><div class="label" style="font-size:11px">Tỷ lệ quay lại</div><div class="value" style="font-size:1.4rem">${returnRate}<small>%</small></div><div class="hint">${returnedCount}/${totalProcessed} SV</div></div>
-              <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">SV đã ổn định</div><div class="value" style="font-size:1.4rem">${returnedCount}</div></div>
-              <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Diện đặc thù</div><div class="value" style="font-size:1.4rem">${specialGroupTotal}</div></div>
-            </div>
-            <div class="tab-sections">
-              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Phân tích tỷ lệ quay lại</summary>${m1.body}</details>
-              <details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--ok);text-transform:uppercase;letter-spacing:.06em">SV đã quay lại (${returnedCount})</summary>${m2.body}</details>
-              ${specialGroupTotal > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">Diện đặc thù (${specialGroupTotal})</summary>${m3.body}</details>` : ''}
-            </div>` };
-        };
+          // ── Hiệu quả mô hình ──
+          effectiveness: () => {
+            const effSegs = [
+              { label: 'Đã quay lại', v: returnedCount, c: '#10b981' },
+              { label: 'Còn nguy cơ', v: stillAtRisk.length, c: '#ef4444' },
+              { label: 'Diện đặc thù', v: specialGroupTotal, c: '#f59e0b' },
+            ];
+            const total2 = effSegs.reduce((s, x) => s + x.v, 0);
+            const groups = [
+              { label: 'Thôi học', list: thoiHocList, c: '#ef4444' },
+              { label: 'Bảo lưu', list: baoLuuList, c: '#f59e0b' },
+              { label: 'Nghỉ dài hạn', list: nghiDaiHanList, c: '#3b82f6' },
+              { label: 'Đình chỉ', list: dinhChiList, c: '#6b7280' },
+            ].filter((g) => g.list.length > 0);
+            return { title: 'Hiệu quả mô hình hỗ trợ SV', body: `
+              ${chartRow(
+                `<div style="text-align:center">
+                  ${donut(effSegs, 140)}
+                  <div style="font-size:11.5px;color:#6b7280;margin-top:6px">Kết quả xử lý SV nguy cơ</div>
+                </div>`,
+                `<div style="flex:1;min-width:200px;padding-top:10px">
+                  ${legend(effSegs, total2)}
+                  <div style="margin-top:12px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border-left:3px solid #10b981">
+                    <div style="font-size:11px;color:#6b7280">Tỷ lệ quay lại</div>
+                    <div style="font-size:1.5rem;font-weight:800;color:#10b981">${returnRate}%</div>
+                    <div style="font-size:11.5px;color:#6b7280">${returnedCount} / ${totalProcessed} SV đã xử lý</div>
+                  </div>
+                  ${specialGroupTotal > 0 ? `<div style="margin-top:10px">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:8px">Diện đặc thù</div>
+                    ${hbar(groups.map((g) => ({ label: g.label, v: g.list.length, c: g.c })), Math.max(...groups.map((g) => g.list.length)))}
+                  </div>` : ''}
+                </div>`
+              )}
+              ${accord([
+                retList.length > 0 && { label: `SV đã quay lại (${retList.length})`, color: 'var(--ok)', open: true, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th>', retList.map((s) => svRow(s)), 'Chưa có') },
+                stillAtRisk.length > 0 && { label: `SV còn nguy cơ (${stillAtRisk.length})`, color: 'var(--danger)', body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>', stillAtRisk.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Không có') },
+                specialGroupTotal > 0 && { label: `Diện đặc thù (${specialGroupTotal})`, color: 'var(--warn)', body: groups.map((g) => `
+                  <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin:10px 0 5px">${g.label} (${g.list.length})</div>
+                  ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Tình trạng</th>', g.list.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.enrollStatus || '').slice(0, 40))}</td>`)), 'Không có')}`).join('') },
+              ])}` };
+          },
 
-        modals.risk = () => {
-          const m1 = modals.atRisk(); const m2 = modals.openEsc(); const m3 = modals.closedEsc(); const m4 = modals.noCase();
-          return { title: 'Tình trạng SV nguy cơ & case xử lý', body: `
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-              <div class="kpi ${atRisk.length > 0 ? 'danger' : 'ok'}" style="padding:10px 14px"><div class="label" style="font-size:11px">SV nguy cơ</div><div class="value" style="font-size:1.4rem">${atRisk.length}</div></div>
-              <div class="kpi ${openEsc.length > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Case đang mở</div><div class="value" style="font-size:1.4rem">${openEsc.length}</div></div>
-              <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">Case đã đóng</div><div class="value" style="font-size:1.4rem">${closedEsc.length}</div><div class="hint">${resolveRate}% xử lý</div></div>
-              <div class="kpi ${noCaseCount2 > 0 ? 'danger' : 'ok'}" style="padding:10px 14px"><div class="label" style="font-size:11px">Chưa có case</div><div class="value" style="font-size:1.4rem">${noCaseCount2}</div></div>
-            </div>
-            <div class="tab-sections">
-              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">SV nguy cơ (${atRisk.length})</summary>${m1.body}</details>
-              ${openEsc.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">Case đang mở (${openEsc.length})</summary>${m2.body}</details>` : ''}
-              ${closedEsc.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--ok);text-transform:uppercase;letter-spacing:.06em">Case đã đóng (${closedEsc.length})</summary>${m3.body}</details>` : ''}
-              ${noCaseCount2 > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--danger);text-transform:uppercase;letter-spacing:.06em">SV chưa có case (${noCaseCount2})</summary>${m4.body}</details>` : ''}
-            </div>` };
+          // ── Tình trạng SV nguy cơ ──
+          risk: () => {
+            const riskSegs = [
+              { label: 'Cao', v: riskHigh.length, c: '#ef4444' },
+              { label: 'Trung bình', v: riskMed.length, c: '#f59e0b' },
+              { label: 'Thấp', v: riskLow.length, c: '#3b82f6' },
+            ];
+            const caseSegs = [
+              { label: 'Đã đóng', v: closedEsc.length, c: '#10b981' },
+              { label: 'Đang mở', v: openEsc.length, c: '#f59e0b' },
+              { label: 'Chưa có case', v: noCaseCount2, c: '#ef4444' },
+            ];
+            const caseTotal = closedEsc.length + openEsc.length + noCaseCount2;
+            return { title: 'Tình trạng SV nguy cơ & case xử lý', body: `
+              ${chartRow(
+                `<div style="text-align:center">
+                  ${donut(riskSegs, 130)}
+                  <div style="font-size:11.5px;color:#6b7280;margin-top:6px">Mức độ nguy cơ</div>
+                  <div style="margin-top:10px">${legend(riskSegs, atRisk.length)}</div>
+                </div>`,
+                `<div style="flex:1;min-width:200px;text-align:center">
+                  ${donut(caseSegs, 130)}
+                  <div style="font-size:11.5px;color:#6b7280;margin-top:6px">Tình trạng case</div>
+                  <div style="margin-top:10px">${legend(caseSegs, caseTotal)}</div>
+                  <div style="margin-top:10px;padding:8px 12px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:6px;text-align:left;font-size:12px">
+                    Tỷ lệ xử lý case: <strong style="color:#10b981">${resolveRate}%</strong>
+                  </div>
+                </div>`
+              )}
+              ${accord([
+                atRisk.length > 0 && { label: `SV nguy cơ (${atRisk.length})`, open: true, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Mức</th><th>Lý do</th>', atRisk.map((s) => {
+                  const lvl = { HIGH: 'Cao', MEDIUM: 'TB', LOW: 'Thấp' }[s.riskLevel] || '—';
+                  const lvlCls = { HIGH: 'badge-danger', MEDIUM: 'badge-warn', LOW: 'badge-muted' }[s.riskLevel] || 'badge-muted';
+                  return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${s.classId}')">
+                    <td><strong>${esc(s.name)}</strong></td>
+                    <td><span class="badge badge-muted" style="font-size:10px">${esc(classById(s.classId)?.code || '—')}</span></td>
+                    <td style="font-size:12px">${shortName(classById(s.classId)?.cvhtId)}</td>
+                    <td><span class="badge ${lvlCls}">${lvl}</span></td>
+                    <td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || s.riskReason || '').slice(0, 45))}</td></tr>`;
+                }), 'Không có SV nguy cơ') },
+                openEsc.length > 0 && { label: `Case đang mở (${openEsc.length})`, color: 'var(--warn)', body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Ghi chú</th>', openEsc.map(escRow), 'Không có') },
+                closedEsc.length > 0 && { label: `Case đã đóng (${closedEsc.length})`, color: 'var(--ok)', body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Kết quả</th>', closedEsc.map(escRow), 'Không có') },
+                noCaseList.length > 0 && { label: `SV chưa có case (${noCaseList.length})`, color: 'var(--danger)', body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>', noCaseList.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Không có') },
+              ])}` };
+          },
         };
 
         const def = modals[key] ? modals[key]() : null;
         if (!def) return;
         openModal(`
-          <h2 style="margin:0 0 14px;font-size:1rem">${def.title}</h2>
+          <h2 style="margin:0 0 4px;font-size:1rem">${def.title}</h2>
           ${def.body}
-        `, { width: '780px' });
+        `, { width: '820px' });
       };
 
     } else {
