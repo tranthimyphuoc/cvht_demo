@@ -1790,100 +1790,80 @@
           <div><h2>${h.title}</h2><p>${h.sub}</p></div>
           <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
         </div>
-        <!-- Hàng 1: Tổng quan hoạt động -->
-        <div class="kpi-grid kpi-grid-3">
+        <!-- Hàng 1: 4 chỉ số tổng quan -->
+        <div class="kpi-grid kpi-grid-4">
           <div class="kpi">
             <div class="label">Lớp phụ trách</div>
             <div class="value">${classes.length}</div>
+            <div class="hint">${hnClasses.length} HN · ${hcmClasses.length} HCM</div>
           </div>
           <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
             <div class="label">BC chờ xử lý</div>
             <div class="value">${pending.length}</div>
             <div class="hint">Từ Bí thư / Lớp trưởng</div>
           </div>
+          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : classes.length > 0 ? 'danger' : ''}">
+            <div class="label">Tình hình vào lớp</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px">
+              <div class="value" style="margin:0">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Ghi →</button>
+            </div>
+            <div class="hint">${classes.length - recentVisitClassIds.size > 0 ? `Còn ${classes.length - recentVisitClassIds.size} lớp chưa vào` : 'Đã vào tất cả lớp'}</div>
+          </div>
           <div class="kpi ${unreadCount() > 0 ? 'info' : ''}">
-            <div class="label">Thông báo mới</div>
+            <div class="label">Thông báo chưa đọc</div>
             <div class="value">${unreadCount()}</div>
-            <div class="hint">Chưa đọc</div>
+            <div class="hint">${unreadCount() > 0 ? 'Bấm chuông để xem' : 'Không có mới'}</div>
           </div>
         </div>
 
-        <!-- Hàng 2: Theo dõi sinh viên nguy cơ -->
-        <div class="dashboard-section-label">Theo dõi sinh viên nguy cơ</div>
+        <!-- Hàng 2: Sinh viên nguy cơ -->
+        <div class="dashboard-section-label">Sinh viên nguy cơ</div>
         <div class="kpi-grid kpi-grid-4" style="margin-top:0">
           <div class="kpi ${totalCohort > 0 ? 'warn' : ''}">
             <div class="label">Tổng sinh viên nguy cơ</div>
             <div class="value">${totalCohort}</div>
+            <div class="hint">Đã & đang theo dõi</div>
           </div>
-          <div class="kpi ok">
+          <div class="kpi ${returnedCount > 0 ? 'ok' : ''}">
             <div class="label">Đã quay lại</div>
             <div class="value">${returnedCount}</div>
+            <div class="hint">${cohortReturnRate}% tổng nguy cơ</div>
           </div>
           <div class="kpi ${notReturnedCount > 0 ? 'danger' : 'ok'}">
             <div class="label">Chưa quay lại</div>
             <div class="value">${notReturnedCount}</div>
+            <div class="hint">${notReturnedCount > 0 ? 'Cần tiếp tục theo dõi' : 'Tất cả đã ổn định'}</div>
           </div>
           <div class="kpi ${escalatedStudentIds.size > 0 ? 'warn' : ''}">
-            <div class="label">Đã chuyển lên QLĐT</div>
+            <div class="label">Đã chuyển QLĐT</div>
             <div class="value">${escalatedStudentIds.size}</div>
+            <div class="hint">Đang xử lý: ${openEsc.length} · Đóng: ${closedEsc.length}</div>
           </div>
         </div>
 
-        <!-- Hàng 3: Tỷ lệ xử lý -->
-        <div class="kpi-grid kpi-grid-3" style="margin-top:0">
-          <div class="kpi ${cohortReturnRate >= 70 ? 'ok' : cohortReturnRate >= 40 ? 'warn' : totalCohort > 0 ? 'danger' : ''}">
-            <div class="label">Tỷ lệ quay lại ổn định</div>
-            <div class="value">${cohortReturnRate}<small>%</small></div>
-            <div class="hint">${returnedCount}/${totalCohort} SV</div>
-          </div>
-          <div class="kpi ${resolveRate >= 70 ? 'ok' : resolveRate >= 40 ? 'warn' : totalEsc > 0 ? 'danger' : ''}">
-            <div class="label">Tỷ lệ xử lý case QLĐT</div>
-            <div class="value">${resolveRate}<small>%</small></div>
-            <div class="hint">${closedEsc.length}/${totalEsc} case đã đóng</div>
-          </div>
-          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : classes.length > 0 ? 'danger' : ''}">
-            <div class="label">Tình hình vào lớp</div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:4px">
-              <div class="value" style="margin:0">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
-              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Ghi vào lớp →</button>
-            </div>
-          </div>
-        </div>
+        <!-- Hàng 3: Tỷ lệ hiệu quả + BC chờ -->
         ${pending.length > 0 ? `
-        <div class="panel" style="margin-bottom:18px;border-left:3px solid var(--warn)">
+        <div class="panel" style="margin-bottom:14px;border-left:3px solid var(--warn)">
           <div class="panel-head">
-            <h2>Báo cáo chờ bạn xem xét (${pending.length})</h2>
+            <h2>Báo cáo chờ xem xét (${pending.length})</h2>
             <button class="btn btn-warn btn-sm" onclick="App.go('inbox')">Vào hộp thư →</button>
           </div>
           <div style="padding:0 18px 14px">
-            ${pending.slice(0, 5).map((rpt) => {
+            ${pending.slice(0, 4).map((rpt) => {
               const kindLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)' }[rpt.reportKind] || rpt.reportKind;
-              return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft)">
+              return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-soft)">
                 <div>
                   <strong style="font-size:13px">${esc(classById(rpt.classId)?.code || '—')}</strong>
                   <span class="badge badge-warn" style="margin-left:6px">${esc(kindLabel)}</span>
-                  <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${esc(shortName(rpt.reporterId))} · ${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</div>
+                  <span style="font-size:11.5px;color:var(--muted);margin-left:8px">${esc(shortName(rpt.reporterId))} · ${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</span>
                 </div>
                 <button class="btn btn-primary btn-sm" onclick="App.go('reports/${rpt.id}')">Xem →</button>
               </div>`;
             }).join('')}
-            ${pending.length > 5 ? `<div style="font-size:12px;color:var(--muted);padding-top:8px">...và ${pending.length - 5} báo cáo khác</div>` : ''}
+            ${pending.length > 4 ? `<div style="font-size:12px;color:var(--muted);padding-top:8px">...và ${pending.length - 4} báo cáo khác</div>` : ''}
           </div>
         </div>` : ''}
-
-        ${(() => {
-          const notVisited = classes.filter((c) => !recentVisitClassIds.has(c.id));
-          if (!notVisited.length) return '';
-          return `<div class="panel" style="margin-bottom:18px;border-left:3px solid var(--info)">
-            <div class="panel-head">
-              <h2>Lớp chưa vào trong 2 tuần qua (${notVisited.length}/${classes.length})</h2>
-              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Ghi lịch vào lớp →</button>
-            </div>
-            <div style="padding:0 18px 14px;display:flex;flex-wrap:wrap;gap:8px">
-              ${notVisited.map((c) => `<span class="badge badge-muted" style="cursor:pointer;font-size:12px;padding:4px 10px" onclick="App.go('classes/${c.id}')">${esc(c.code)}</span>`).join('')}
-            </div>
-          </div>`;
-        })()}
 
         <div class="grid-2">
           <div class="panel">
