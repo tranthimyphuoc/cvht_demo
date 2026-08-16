@@ -1534,75 +1534,51 @@
           </div>
         </div>
 
-        <div class="dashboard-section-label">Tổng quan quy mô</div>
-        <!-- Hàng 1: Quy mô & vận hành -->
-        <div class="kpi-grid kpi-grid-3">
-          <div class="kpi kpi-clickable" onclick="App._kpiDetail('classes')">
-            <div class="label">Tổng lớp phụ trách</div>
-            <div class="value">${classes.length}</div>
-            <div class="hint kpi-hint-link">HN: ${hnClasses.length} · HCM: ${hcmClasses.length} <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ${pending.length > 0 ? 'warn' : ''}" onclick="App._kpiDetail('pending')">
-            <div class="label">BC chờ xác nhận</div>
-            <div class="value">${pending.length}</div>
-            <div class="hint kpi-hint-link">Báo cáo tổng hợp từ CVHT <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ${escalatedStudentIds.size > 0 ? 'info' : ''}" onclick="App._kpiDetail('care')">
-            <div class="label">Tỷ lệ SV được chăm sóc</div>
-            <div class="value">${totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0}<small>%</small></div>
-            <div class="hint kpi-hint-link">${escalatedStudentIds.size} SV đã có case / ${totalProcessed} SV từng nguy cơ <span class="hint-arrow">→</span></div>
-          </div>
-        </div>
-
-        <!-- Hàng 2: Hiệu quả mô hình -->
-        <div class="dashboard-section-label">Hiệu quả mô hình hỗ trợ SV</div>
-        <div class="kpi-grid kpi-grid-3">
-          <div class="kpi kpi-clickable ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : totalProcessed > 0 ? 'danger' : ''}" onclick="App._kpiDetail('returnRate')">
-            <div class="label">Tỷ lệ SV quay lại học</div>
-            <div class="value">${returnRate}<small>%</small></div>
-            <div class="hint kpi-hint-link">${returnedCount} ổn định / ${totalProcessed} đã xử lý <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ok" onclick="App._kpiDetail('returned')">
-            <div class="label">SV quay lại học bình thường</div>
-            <div class="value">${returnedCount}</div>
-            <div class="hint kpi-hint-link">Từ nguy cơ → ổn định (toàn kỳ) <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ${specialGroupTotal > 0 ? 'warn' : ''}" onclick="App._kpiDetail('special')">
-            <div class="label">SV diện đặc thù</div>
-            <div class="value">${specialGroupTotal}</div>
-            <div class="hint kpi-hint-link">Bảo lưu · Thôi học · Nghỉ DH · Đình chỉ <span class="hint-arrow">→</span></div>
-          </div>
-        </div>
-
-        <!-- Cam kết bảo mật dữ liệu SV -->
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;margin-bottom:18px;font-size:12px;color:var(--muted)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <span>Dữ liệu sinh viên chỉ được cung cấp cho nhân sự có quyền truy cập hợp lệ. Mọi thao tác đều được ghi nhật ký và kiểm soát theo phân quyền hệ thống.</span>
-        </div>
-
-        <div class="dashboard-section-label">Tình trạng SV nguy cơ & case đang xử lý</div>
-        <div class="kpi-grid kpi-grid-4">
-          <div class="kpi kpi-clickable ${atRisk.length > 0 ? 'danger' : 'ok'}" onclick="App._kpiDetail('atRisk')">
-            <div class="label">SV nguy cơ / có vấn đề</div>
-            <div class="value">${atRisk.length}</div>
-            <div class="hint kpi-hint-link">Cao: ${riskHigh.length} · TB: ${riskMed.length} · Thấp: ${riskLow.length} <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ${openEsc.length > 0 ? 'warn' : ''}" onclick="App._kpiDetail('openEsc')">
-            <div class="label">Case QLĐT đang mở</div>
-            <div class="value">${openEsc.length}</div>
-            <div class="hint kpi-hint-link">${totalEsc} tổng case đã tạo <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ok" onclick="App._kpiDetail('closedEsc')">
-            <div class="label">Case đã đóng</div>
-            <div class="value">${closedEsc.length}</div>
-            <div class="hint kpi-hint-link">Tỷ lệ xử lý: <strong>${resolveRate}%</strong> <span class="hint-arrow">→</span></div>
-          </div>
-          <div class="kpi kpi-clickable ${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length > 0 ? 'danger' : 'ok'}" onclick="App._kpiDetail('noCase')">
-            <div class="label">SV nguy cơ chưa có case</div>
-            <div class="value">${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length}</div>
-            <div class="hint kpi-hint-link">Cần lập case theo dõi QLĐT <span class="hint-arrow">→</span></div>
-          </div>
-        </div>
+        ${(() => {
+          const careRatePct = totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0;
+          const noCaseCount = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length;
+          const chip = (txt, type = '') => `<span class="sum-chip${type ? ' sum-chip-' + type : ''}">${txt}</span>`;
+          return `<div class="panel sum-panel" style="margin-bottom:16px">
+            <div class="sum-row" onclick="App._kpiDetail('overview')">
+              <div class="sum-label">Quy mô & vận hành</div>
+              <div class="sum-stats">
+                <strong>${classes.length}</strong> lớp
+                <span class="sum-sep">·</span> HN: ${hnClasses.length} · HCM: ${hcmClasses.length}
+                <span class="sum-sep">|</span>
+                ${pending.length > 0 ? chip(pending.length + ' BC chờ xác nhận', 'warn') : chip('Không có BC chờ', 'ok')}
+                <span class="sum-sep">|</span>
+                ${chip(careRatePct + '% SV được chăm sóc', careRatePct >= 80 ? 'ok' : careRatePct >= 40 ? '' : 'warn')}
+              </div>
+              <div class="sum-go">Chi tiết <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
+            </div>
+            <div class="sum-divider"></div>
+            <div class="sum-row" onclick="App._kpiDetail('effectiveness')">
+              <div class="sum-label">Hiệu quả mô hình</div>
+              <div class="sum-stats">
+                ${chip(returnRate + '% SV quay lại', returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : totalProcessed > 0 ? 'danger' : '')}
+                <span class="sum-sep">·</span> ${returnedCount} SV ổn định
+                ${specialGroupTotal > 0 ? `<span class="sum-sep">|</span> ${chip(specialGroupTotal + ' diện đặc thù', 'warn')}` : ''}
+              </div>
+              <div class="sum-go">Chi tiết <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
+            </div>
+            <div class="sum-divider"></div>
+            <div class="sum-row" onclick="App._kpiDetail('risk')">
+              <div class="sum-label">Tình trạng SV nguy cơ</div>
+              <div class="sum-stats">
+                ${atRisk.length > 0 ? chip(atRisk.length + ' SV nguy cơ', 'danger') : chip('Không có SV nguy cơ', 'ok')}
+                <span class="sum-sep">|</span>
+                ${openEsc.length > 0 ? chip(openEsc.length + ' case đang mở', 'warn') : '<span style="color:var(--muted)">0 case mở</span>'}
+                <span class="sum-sep">·</span> ${closedEsc.length} case đóng (${resolveRate}%)
+                ${noCaseCount > 0 ? `<span class="sum-sep">|</span> ${chip(noCaseCount + ' SV chưa có case', 'danger')}` : ''}
+              </div>
+              <div class="sum-go">Chi tiết <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 18px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--muted)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Dữ liệu SV chỉ cấp cho nhân sự có quyền hợp lệ. Mọi thao tác đều được ghi nhật ký.
+            </div>
+          </div>`;
+        })()}
 
         <div class="grid-2" style="margin-bottom:18px">
           <div class="panel">
@@ -2013,6 +1989,57 @@
               noCaseList.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)),
               'Tất cả SV nguy cơ đã được lập case') };
           },
+        };
+
+        // ── Các modal tổng hợp (từ compact summary rows) ──
+        const careRatePct2 = totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0;
+        const noCaseCount2 = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length;
+
+        modals.overview = () => {
+          const m1 = modals.classes(); const m2 = modals.pending(); const m3 = modals.care();
+          return { title: 'Quy mô & vận hành', body: `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+              <div class="kpi" style="padding:10px 14px"><div class="label" style="font-size:11px">Tổng lớp</div><div class="value" style="font-size:1.4rem">${classes.length}</div><div class="hint">HN: ${hnClasses.length} · HCM: ${hcmClasses.length}</div></div>
+              <div class="kpi ${pending.length > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">BC chờ xác nhận</div><div class="value" style="font-size:1.4rem">${pending.length}</div></div>
+              <div class="kpi" style="padding:10px 14px"><div class="label" style="font-size:11px">SV được chăm sóc</div><div class="value" style="font-size:1.4rem">${careRatePct2}<small>%</small></div><div class="hint">${escalatedStudentIds.size}/${totalProcessed} SV</div></div>
+            </div>
+            <div class="tab-sections">
+              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Danh sách lớp (${classes.length})</summary>${m1.body}</details>
+              ${pending.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">BC chờ xác nhận (${pending.length})</summary>${m2.body}</details>` : ''}
+              <details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">SV được chăm sóc</summary>${m3.body}</details>
+            </div>` };
+        };
+
+        modals.effectiveness = () => {
+          const m1 = modals.returnRate(); const m2 = modals.returned(); const m3 = modals.special();
+          return { title: 'Hiệu quả mô hình hỗ trợ SV', body: `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+              <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : 'danger'}" style="padding:10px 14px"><div class="label" style="font-size:11px">Tỷ lệ quay lại</div><div class="value" style="font-size:1.4rem">${returnRate}<small>%</small></div><div class="hint">${returnedCount}/${totalProcessed} SV</div></div>
+              <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">SV đã ổn định</div><div class="value" style="font-size:1.4rem">${returnedCount}</div></div>
+              <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Diện đặc thù</div><div class="value" style="font-size:1.4rem">${specialGroupTotal}</div></div>
+            </div>
+            <div class="tab-sections">
+              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Phân tích tỷ lệ quay lại</summary>${m1.body}</details>
+              <details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--ok);text-transform:uppercase;letter-spacing:.06em">SV đã quay lại (${returnedCount})</summary>${m2.body}</details>
+              ${specialGroupTotal > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">Diện đặc thù (${specialGroupTotal})</summary>${m3.body}</details>` : ''}
+            </div>` };
+        };
+
+        modals.risk = () => {
+          const m1 = modals.atRisk(); const m2 = modals.openEsc(); const m3 = modals.closedEsc(); const m4 = modals.noCase();
+          return { title: 'Tình trạng SV nguy cơ & case xử lý', body: `
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+              <div class="kpi ${atRisk.length > 0 ? 'danger' : 'ok'}" style="padding:10px 14px"><div class="label" style="font-size:11px">SV nguy cơ</div><div class="value" style="font-size:1.4rem">${atRisk.length}</div></div>
+              <div class="kpi ${openEsc.length > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Case đang mở</div><div class="value" style="font-size:1.4rem">${openEsc.length}</div></div>
+              <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">Case đã đóng</div><div class="value" style="font-size:1.4rem">${closedEsc.length}</div><div class="hint">${resolveRate}% xử lý</div></div>
+              <div class="kpi ${noCaseCount2 > 0 ? 'danger' : 'ok'}" style="padding:10px 14px"><div class="label" style="font-size:11px">Chưa có case</div><div class="value" style="font-size:1.4rem">${noCaseCount2}</div></div>
+            </div>
+            <div class="tab-sections">
+              <details open><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">SV nguy cơ (${atRisk.length})</summary>${m1.body}</details>
+              ${openEsc.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--warn);text-transform:uppercase;letter-spacing:.06em">Case đang mở (${openEsc.length})</summary>${m2.body}</details>` : ''}
+              ${closedEsc.length > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--ok);text-transform:uppercase;letter-spacing:.06em">Case đã đóng (${closedEsc.length})</summary>${m3.body}</details>` : ''}
+              ${noCaseCount2 > 0 ? `<details><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:8px 0;color:var(--danger);text-transform:uppercase;letter-spacing:.06em">SV chưa có case (${noCaseCount2})</summary>${m4.body}</details>` : ''}
+            </div>` };
         };
 
         const def = modals[key] ? modals[key]() : null;
