@@ -1537,40 +1537,40 @@
         <div class="dashboard-section-label">Tổng quan quy mô</div>
         <!-- Hàng 1: Quy mô & vận hành -->
         <div class="kpi-grid kpi-grid-3">
-          <div class="kpi">
+          <div class="kpi kpi-clickable" onclick="App._kpiDetail('classes')">
             <div class="label">Tổng lớp phụ trách</div>
             <div class="value">${classes.length}</div>
-            <div class="hint">HN: ${hnClasses.length} · HCM: ${hcmClasses.length}</div>
+            <div class="hint kpi-hint-link">HN: ${hnClasses.length} · HCM: ${hcmClasses.length} <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
+          <div class="kpi kpi-clickable ${pending.length > 0 ? 'warn' : ''}" onclick="App._kpiDetail('pending')">
             <div class="label">BC chờ xác nhận</div>
             <div class="value">${pending.length}</div>
-            <div class="hint">Báo cáo tổng hợp từ CVHT</div>
+            <div class="hint kpi-hint-link">Báo cáo tổng hợp từ CVHT <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ${escalatedStudentIds.size > 0 ? 'info' : ''}">
+          <div class="kpi kpi-clickable ${escalatedStudentIds.size > 0 ? 'info' : ''}" onclick="App._kpiDetail('care')">
             <div class="label">Tỷ lệ SV được chăm sóc</div>
             <div class="value">${totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0}<small>%</small></div>
-            <div class="hint">${escalatedStudentIds.size} SV đã có case / ${totalProcessed} SV từng nguy cơ</div>
+            <div class="hint kpi-hint-link">${escalatedStudentIds.size} SV đã có case / ${totalProcessed} SV từng nguy cơ <span class="hint-arrow">→</span></div>
           </div>
         </div>
 
         <!-- Hàng 2: Hiệu quả mô hình -->
         <div class="dashboard-section-label">Hiệu quả mô hình hỗ trợ SV</div>
         <div class="kpi-grid kpi-grid-3">
-          <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : totalProcessed > 0 ? 'danger' : ''}">
+          <div class="kpi kpi-clickable ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : totalProcessed > 0 ? 'danger' : ''}" onclick="App._kpiDetail('returnRate')">
             <div class="label">Tỷ lệ SV quay lại học</div>
             <div class="value">${returnRate}<small>%</small></div>
-            <div class="hint">${returnedCount} ổn định / ${totalProcessed} đã xử lý</div>
+            <div class="hint kpi-hint-link">${returnedCount} ổn định / ${totalProcessed} đã xử lý <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ok">
+          <div class="kpi kpi-clickable ok" onclick="App._kpiDetail('returned')">
             <div class="label">SV quay lại học bình thường</div>
             <div class="value">${returnedCount}</div>
-            <div class="hint">Từ nguy cơ → ổn định (toàn kỳ)</div>
+            <div class="hint kpi-hint-link">Từ nguy cơ → ổn định (toàn kỳ) <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}">
+          <div class="kpi kpi-clickable ${specialGroupTotal > 0 ? 'warn' : ''}" onclick="App._kpiDetail('special')">
             <div class="label">SV diện đặc thù</div>
             <div class="value">${specialGroupTotal}</div>
-            <div class="hint">Bảo lưu · Thôi học · Nghỉ DH · Đình chỉ</div>
+            <div class="hint kpi-hint-link">Bảo lưu · Thôi học · Nghỉ DH · Đình chỉ <span class="hint-arrow">→</span></div>
           </div>
         </div>
 
@@ -1582,26 +1582,25 @@
 
         <div class="dashboard-section-label">Tình trạng SV nguy cơ & case đang xử lý</div>
         <div class="kpi-grid kpi-grid-4">
-          <div class="kpi ${atRisk.length > 0 ? 'danger' : 'ok'}">
+          <div class="kpi kpi-clickable ${atRisk.length > 0 ? 'danger' : 'ok'}" onclick="App._kpiDetail('atRisk')">
             <div class="label">SV nguy cơ / có vấn đề</div>
             <div class="value">${atRisk.length}</div>
-            <div class="hint">Cao: ${riskHigh.length} · TB: ${riskMed.length} · Thấp: ${riskLow.length}</div>
+            <div class="hint kpi-hint-link">Cao: ${riskHigh.length} · TB: ${riskMed.length} · Thấp: ${riskLow.length} <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ${openEsc.length > 0 ? 'warn' : ''}">
+          <div class="kpi kpi-clickable ${openEsc.length > 0 ? 'warn' : ''}" onclick="App._kpiDetail('openEsc')">
             <div class="label">Case QLĐT đang mở</div>
             <div class="value">${openEsc.length}</div>
-            <div class="hint">${totalEsc} tổng case đã tạo</div>
-            ${openEsc.length > 0 ? `<button class="btn btn-warn btn-xs" onclick="App.go('escalations')" style="margin-top:6px">Xem ngay →</button>` : ''}
+            <div class="hint kpi-hint-link">${totalEsc} tổng case đã tạo <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ok">
+          <div class="kpi kpi-clickable ok" onclick="App._kpiDetail('closedEsc')">
             <div class="label">Case đã đóng</div>
             <div class="value">${closedEsc.length}</div>
-            <div class="hint">Tỷ lệ xử lý: <strong>${resolveRate}%</strong></div>
+            <div class="hint kpi-hint-link">Tỷ lệ xử lý: <strong>${resolveRate}%</strong> <span class="hint-arrow">→</span></div>
           </div>
-          <div class="kpi ${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length > 0 ? 'danger' : 'ok'}">
+          <div class="kpi kpi-clickable ${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length > 0 ? 'danger' : 'ok'}" onclick="App._kpiDetail('noCase')">
             <div class="label">SV nguy cơ chưa có case</div>
             <div class="value">${atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id)).length}</div>
-            <div class="hint">Cần lập case theo dõi QLĐT</div>
+            <div class="hint kpi-hint-link">Cần lập case theo dõi QLĐT <span class="hint-arrow">→</span></div>
           </div>
         </div>
 
@@ -1893,6 +1892,135 @@
           if (mp) mp.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) - 1; openModal.close(); pageDashboard(); setTimeout(() => App._openWeekDetail(classId), 50); };
           if (mn) mn.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) + 1; openModal.close(); pageDashboard(); setTimeout(() => App._openWeekDetail(classId), 50); };
         }, 0);
+      };
+
+      // ── Modal chi tiết KPI ──
+      App._kpiDetail = (key) => {
+        const svRow = (s, extra = '') => {
+          const cls = classById(s.classId);
+          return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${s.classId}')">
+            <td><strong>${esc(s.name)}</strong></td>
+            <td><span class="badge badge-muted" style="font-size:10px">${esc(cls?.code || '—')}</span></td>
+            <td style="font-size:11.5px;color:var(--muted)">${esc(cls ? (shortName(cls.cvhtId) || '—') : '—')}</td>
+            ${extra}
+          </tr>`;
+        };
+        const escRow = (e) => {
+          const sv = (db().students || []).find((s) => s.id === e.studentId);
+          const cls = classById(e.classId);
+          return `<tr style="cursor:pointer" onclick="openModal.close();App.go('escalations')">
+            <td><strong>${esc(sv?.name || '—')}</strong></td>
+            <td><span class="badge badge-muted" style="font-size:10px">${esc(cls?.code || '—')}</span></td>
+            <td style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(e.createdAt)}</td>
+            <td style="font-size:11.5px">${esc((e.resolveNote || e.note || '').slice(0, 50))}</td>
+          </tr>`;
+        };
+        const tbl = (head, rows, empty = 'Không có dữ liệu') => `
+          <div class="table-wrap"><table class="data-table">
+            <thead><tr>${head}</tr></thead>
+            <tbody>${rows.length > 0 ? rows.join('') : `<tr><td colspan="10" class="empty" style="padding:16px">${empty}</td></tr>`}</tbody>
+          </table></div>`;
+
+        const modals = {
+          classes: () => {
+            const grouped = [['HN', hnClasses], ['HCM', hcmClasses]];
+            return { title: `Danh sách lớp phụ trách (${classes.length})`, body: grouped.map(([campus, list]) => `
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 6px">${campus} — ${list.length} lớp</div>
+              ${tbl('<th>Mã lớp</th><th>CVHT</th><th>SV nguy cơ</th>', list.map((c) => {
+                const cnt = atRisk.filter((s) => s.classId === c.id).length;
+                return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${c.id}')">
+                  <td><strong>${esc(c.code)}</strong></td>
+                  <td style="font-size:12px">${shortName(c.cvhtId)}</td>
+                  <td>${cnt > 0 ? `<span class="badge badge-danger">${cnt}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+                </tr>`;
+              }), 'Không có lớp')}`) .join('') };
+          },
+          pending: () => ({
+            title: `Báo cáo chờ xác nhận (${pending.length})`,
+            body: tbl('<th>Lớp</th><th>Loại BC</th><th>Người gửi</th><th>Thời gian</th><th></th>', pending.map((rpt) => {
+              const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT TH' }[rpt.reportKind] || rpt.reportKind;
+              const cls = classById(rpt.classId);
+              return `<tr>
+                <td><strong>${esc(cls?.code || '—')}</strong></td>
+                <td><span class="badge badge-muted">${esc(kLabel)}</span></td>
+                <td style="font-size:12px">${esc(shortName(rpt.reporterId))}</td>
+                <td style="font-size:11.5px;color:var(--muted)">${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</td>
+                <td><button class="btn btn-primary btn-sm" onclick="openModal.close();App.go('reports/${rpt.id}')">Xem →</button></td>
+              </tr>`;
+            }), 'Không có báo cáo chờ'),
+          }),
+          care: () => {
+            const withCase = atRisk.filter((s) => escalatedStudentIds.has(s.id));
+            const noCase2 = atRisk.filter((s) => !escalatedStudentIds.has(s.id));
+            return { title: `SV được chăm sóc — ${escalatedStudentIds.size}/${totalProcessed} SV từng nguy cơ`, body: `
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px">Đã có case (${withCase.length})</div>
+              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Ghi chú</th>', withCase.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Không có')}
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:14px 0 6px">Chưa có case (${noCase2.length})</div>
+              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Ghi chú</th>', noCase2.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Tất cả SV nguy cơ đã có case')}` };
+          },
+          returnRate: () => {
+            const stillAtRisk = atRisk.filter((s) => !returnedStudentIds.has(s.id));
+            return { title: `Tỷ lệ SV quay lại học — ${returnRate}%`, body: `
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+                <div class="kpi ok" style="padding:10px 14px"><div class="label" style="font-size:11px">Đã quay lại</div><div class="value" style="font-size:1.3rem">${returnedCount}</div></div>
+                <div class="kpi ${stillAtRisk.length > 0 ? 'danger' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Còn nguy cơ</div><div class="value" style="font-size:1.3rem">${stillAtRisk.length}</div></div>
+                <div class="kpi ${specialGroupTotal > 0 ? 'warn' : ''}" style="padding:10px 14px"><div class="label" style="font-size:11px">Diện đặc thù</div><div class="value" style="font-size:1.3rem">${specialGroupTotal}</div></div>
+              </div>
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px">SV còn nguy cơ (${stillAtRisk.length})</div>
+              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>', stillAtRisk.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)), 'Tất cả SV đã ổn định')}` };
+          },
+          returned: () => {
+            const retList = (db().students || []).filter((s) => returnedStudentIds.has(s.id) && studentsInScope().some((x) => x.id === s.id));
+            return { title: `SV quay lại học bình thường (${retList.length})`, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th>', retList.map((s) => svRow(s)), 'Chưa có SV nào quay lại') };
+          },
+          special: () => {
+            const groups = [
+              { label: 'Thôi học', list: thoiHocList, cls: 'danger' },
+              { label: 'Bảo lưu', list: baoLuuList, cls: 'warn' },
+              { label: 'Nghỉ dài hạn', list: nghiDaiHanList, cls: 'info' },
+              { label: 'Đình chỉ', list: dinhChiList, cls: '' },
+            ].filter((g) => g.list.length > 0);
+            return { title: `SV diện đặc thù (${specialGroupTotal})`, body: groups.map((g) => `
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:12px 0 6px">${g.label} (${g.list.length})</div>
+              ${tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Tình trạng</th>', g.list.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.enrollStatus || '').slice(0, 40))}</td>`)), 'Không có')}`)
+              .join('') };
+          },
+          atRisk: () => ({
+            title: `SV nguy cơ / có vấn đề (${atRisk.length})`,
+            body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Mức</th><th>Lý do</th>', atRisk.map((s) => {
+              const lvl = { HIGH: 'Cao', MEDIUM: 'TB', LOW: 'Thấp' }[s.riskLevel] || '—';
+              const lvlCls = { HIGH: 'badge-danger', MEDIUM: 'badge-warn', LOW: 'badge-muted' }[s.riskLevel] || 'badge-muted';
+              return `<tr style="cursor:pointer" onclick="openModal.close();App.go('classes/${s.classId}')">
+                <td><strong>${esc(s.name)}</strong></td>
+                <td><span class="badge badge-muted" style="font-size:10px">${esc(classById(s.classId)?.code || '—')}</span></td>
+                <td style="font-size:12px">${shortName(classById(s.classId)?.cvhtId)}</td>
+                <td><span class="badge ${lvlCls}">${lvl}</span></td>
+                <td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || s.riskReason || '').slice(0, 45))}</td>
+              </tr>`;
+            }), 'Không có SV nguy cơ'),
+          }),
+          openEsc: () => ({
+            title: `Case QLĐT đang mở (${openEsc.length})`,
+            body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Ghi chú</th>', openEsc.map(escRow), 'Không có case nào đang mở'),
+          }),
+          closedEsc: () => ({
+            title: `Case đã đóng (${closedEsc.length}) — tỷ lệ xử lý ${resolveRate}%`,
+            body: tbl('<th>Tên SV</th><th>Lớp</th><th>Ngày mở</th><th>Kết quả</th>', closedEsc.map(escRow), 'Chưa có case nào đóng'),
+          }),
+          noCase: () => {
+            const noCaseList = atRisk.filter((s) => !openEsc.some((e) => e.studentId === s.id));
+            return { title: `SV nguy cơ chưa có case (${noCaseList.length})`, body: tbl('<th>Tên SV</th><th>Lớp</th><th>CVHT</th><th>Lý do</th>',
+              noCaseList.map((s) => svRow(s, `<td style="font-size:11.5px;color:var(--muted)">${esc((s.statusNote || '').slice(0, 40))}</td>`)),
+              'Tất cả SV nguy cơ đã được lập case') };
+          },
+        };
+
+        const def = modals[key] ? modals[key]() : null;
+        if (!def) return;
+        openModal(`
+          <h2 style="margin:0 0 14px;font-size:1rem">${def.title}</h2>
+          ${def.body}
+        `, { width: '780px' });
       };
 
     } else {

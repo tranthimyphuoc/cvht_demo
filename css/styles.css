@@ -635,6 +635,12 @@ table { width: 100%; border-collapse: collapse; font-size: .875rem; }
 .data-table th { padding: 8px 12px; }
 .data-table td { padding: 9px 12px; }
 .data-table tr:hover td { background: var(--surface); cursor: pointer; }
+
+.kpi-clickable { cursor: pointer; transition: box-shadow .15s, transform .1s; }
+.kpi-clickable:hover { box-shadow: 0 4px 14px rgba(0,0,0,.09); transform: translateY(-1px); }
+.kpi-clickable:active { transform: translateY(0); }
+.hint-arrow { opacity: 0; font-size: 11px; transition: opacity .15s; margin-left: 2px; }
+.kpi-clickable:hover .hint-arrow { opacity: 1; }
 th {
   text-align: left; padding: 11px 16px;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
