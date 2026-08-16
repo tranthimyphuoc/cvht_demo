@@ -1818,24 +1818,20 @@
         <div class="dashboard-section-label">Theo dõi sinh viên nguy cơ</div>
         <div class="kpi-grid kpi-grid-4" style="margin-top:0">
           <div class="kpi ${totalCohort > 0 ? 'warn' : ''}">
-            <div class="label">Tổng SV từng nguy cơ</div>
+            <div class="label">Tổng sinh viên nguy cơ</div>
             <div class="value">${totalCohort}</div>
-            <div class="hint">Đã &amp; đang theo dõi (toàn kỳ)</div>
           </div>
           <div class="kpi ok">
-            <div class="label">Đã quay lại ổn định</div>
+            <div class="label">Đã quay lại</div>
             <div class="value">${returnedCount}</div>
-            <div class="hint">Nguy cơ / Có vấn đề → Ổn định</div>
           </div>
           <div class="kpi ${notReturnedCount > 0 ? 'danger' : 'ok'}">
             <div class="label">Chưa quay lại</div>
             <div class="value">${notReturnedCount}</div>
-            <div class="hint">Còn đang ở trạng thái nguy cơ</div>
           </div>
           <div class="kpi ${escalatedStudentIds.size > 0 ? 'warn' : ''}">
             <div class="label">Đã chuyển lên QLĐT</div>
             <div class="value">${escalatedStudentIds.size}</div>
-            <div class="hint">Mở: ${openEsc.length} · Đóng: ${closedEsc.length}</div>
           </div>
         </div>
 
@@ -1844,7 +1840,7 @@
           <div class="kpi ${cohortReturnRate >= 70 ? 'ok' : cohortReturnRate >= 40 ? 'warn' : totalCohort > 0 ? 'danger' : ''}">
             <div class="label">Tỷ lệ quay lại ổn định</div>
             <div class="value">${cohortReturnRate}<small>%</small></div>
-            <div class="hint">${returnedCount}/${totalCohort} SV trong diện theo dõi</div>
+            <div class="hint">${returnedCount}/${totalCohort} SV</div>
           </div>
           <div class="kpi ${resolveRate >= 70 ? 'ok' : resolveRate >= 40 ? 'warn' : totalEsc > 0 ? 'danger' : ''}">
             <div class="label">Tỷ lệ xử lý case QLĐT</div>
@@ -1854,7 +1850,6 @@
           <div class="kpi">
             <div class="label">Lớp chưa vào gần đây</div>
             <div class="value">${classes.length - recentVisitClassIds.size}<small>/${classes.length}</small></div>
-            <div class="hint">Chưa ghi vào lớp trong 2 tuần</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.go('visits')">Ghi vào lớp →</button>
           </div>
         </div>

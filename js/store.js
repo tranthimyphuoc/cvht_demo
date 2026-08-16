@@ -1112,7 +1112,13 @@ const Store = {
     (sheets || SheetsAPI.SHEET_NAMES).forEach((name) => {
       const rows = snap[name];
       if (rows == null) return;
-      SheetsAPI.pushEntity(name, rows).catch((err) => console.warn('Sheets push', name, err));
+      SheetsAPI.pushEntity(name, rows).catch((err) => {
+        console.warn('Sheets push', name, err);
+        // Thông báo người dùng nếu lưu dữ liệu thất bại
+        if (typeof toast === 'function') {
+          toast(`Lưu dữ liệu thất bại (${name}). Kiểm tra kết nối mạng và thử lại.`, 'err');
+        }
+      });
     });
   },
 
