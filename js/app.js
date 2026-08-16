@@ -1399,12 +1399,6 @@
       const totalProcessed = cohortIds.size;
       const returnRate = totalProcessed > 0 ? Math.round((returnedCount / totalProcessed) * 100) : 0;
 
-      // ── Thời gian xử lý trung bình — chỉ tính case có đủ timestamp ──
-      const timedClosedEsc = closedEsc.filter((e) => e.resolvedAt && e.createdAt);
-      const avgDays = timedClosedEsc.length > 0
-        ? Math.round(timedClosedEsc.reduce((sum, e) =>
-            sum + (new Date(e.resolvedAt) - new Date(e.createdAt)) / 86400000, 0) / timedClosedEsc.length)
-        : null;
 
       // ── Phân loại nguyên nhân ──
       const causeCounts = {};
@@ -1541,35 +1535,32 @@
         </div>
 
         <div class="dashboard-section-label">Tổng quan quy mô</div>
-        <div class="kpi-grid kpi-grid-4">
+        <!-- Hàng 1: Quy mô & vận hành -->
+        <div class="kpi-grid kpi-grid-3">
           <div class="kpi">
             <div class="label">Tổng lớp phụ trách</div>
             <div class="value">${classes.length}</div>
             <div class="hint">HN: ${hnClasses.length} · HCM: ${hcmClasses.length}</div>
-          </div>
-          <div class="kpi info">
-            <div class="label">Tổng sinh viên</div>
-            <div class="value">${allStudentCount}</div>
-            <div class="hint">Đang học bình thường: ${activeStudentCount}</div>
           </div>
           <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
             <div class="label">BC chờ xác nhận</div>
             <div class="value">${pending.length}</div>
             <div class="hint">Báo cáo tổng hợp từ CVHT</div>
           </div>
-          <div class="kpi">
-            <div class="label">Thông báo chưa đọc</div>
-            <div class="value">${unreadCount()}</div>
-            <div class="hint">Trong hộp thư của bạn</div>
+          <div class="kpi ${escalatedStudentIds.size > 0 ? 'info' : ''}">
+            <div class="label">Tỷ lệ SV được chăm sóc</div>
+            <div class="value">${totalProcessed > 0 ? Math.round(escalatedStudentIds.size / totalProcessed * 100) : 0}<small>%</small></div>
+            <div class="hint">${escalatedStudentIds.size} SV đã có case / ${totalProcessed} SV từng nguy cơ</div>
           </div>
         </div>
 
-        <div class="dashboard-section-label">Chỉ số hiệu quả xử lý nguy cơ</div>
-        <div class="kpi-grid kpi-grid-4">
-          <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : 'danger'}">
-            <div class="label">Tỷ lệ SV quay lại học bình thường</div>
+        <!-- Hàng 2: Hiệu quả mô hình -->
+        <div class="dashboard-section-label">Hiệu quả mô hình hỗ trợ SV</div>
+        <div class="kpi-grid kpi-grid-3">
+          <div class="kpi ${returnRate >= 70 ? 'ok' : returnRate >= 40 ? 'warn' : totalProcessed > 0 ? 'danger' : ''}">
+            <div class="label">Tỷ lệ SV quay lại học</div>
             <div class="value">${returnRate}<small>%</small></div>
-            <div class="hint">${returnedCount} SV ổn định / ${totalProcessed} đã xử lý</div>
+            <div class="hint">${returnedCount} ổn định / ${totalProcessed} đã xử lý</div>
           </div>
           <div class="kpi ok">
             <div class="label">SV quay lại học bình thường</div>
@@ -1581,11 +1572,12 @@
             <div class="value">${specialGroupTotal}</div>
             <div class="hint">Bảo lưu · Thôi học · Nghỉ DH · Đình chỉ</div>
           </div>
-          <div class="kpi ${avgDays !== null && avgDays > 14 ? 'warn' : avgDays !== null ? 'ok' : ''}">
-            <div class="label">Thời gian xử lý TB</div>
-            <div class="value">${avgDays !== null ? avgDays : '—'}<small>${avgDays !== null ? ' ngày' : ''}</small></div>
-            <div class="hint">Từ phát hiện → đóng case (${closedEsc.length} case)</div>
-          </div>
+        </div>
+
+        <!-- Cam kết bảo mật dữ liệu SV -->
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;margin-bottom:18px;font-size:12px;color:var(--muted)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>Dữ liệu sinh viên chỉ được cung cấp cho nhân sự có quyền truy cập hợp lệ. Mọi thao tác đều được ghi nhật ký và kiểm soát theo phân quyền hệ thống.</span>
         </div>
 
         <div class="dashboard-section-label">Tình trạng SV nguy cơ & case đang xử lý</div>
