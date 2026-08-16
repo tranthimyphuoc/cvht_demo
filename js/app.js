@@ -1272,6 +1272,11 @@
     const totalEsc = openEsc.length + closedEsc.length;
     const resolveRate = totalEsc > 0 ? Math.round((closedEsc.length / totalEsc) * 100) : 0;
 
+    // SV đã được chuyển lên QLĐT (unique student IDs trong phạm vi)
+    const escalatedStudentIds = new Set(
+      allEsc.filter(scopeCheck).map((e) => e.studentId).filter(Boolean)
+    );
+
     // Tỷ lệ SV quay lại ổn định (AT_RISK/WATCH → ACTIVE trong audit log, chỉ tính SV trong phạm vi)
     // Format lưu trong auditLog: "STATUS: note" — cần parse code trước khi so sánh
     const scopedStudentIds = new Set(studentsInScope().map((s) => s.id));
@@ -1286,6 +1291,18 @@
       }
     });
     const returnedCount = returnedStudentIds.size;
+
+    // Cohort tổng hợp: tất cả SV từng trong diện nguy cơ (quay lại + còn nguy cơ + đã chuyển QLĐT)
+    const cohortIds = new Set([
+      ...returnedStudentIds,
+      ...atRisk.map((s) => s.id),
+      ...escalatedStudentIds,
+    ]);
+    const totalCohort = cohortIds.size;
+    // SV còn đang nguy cơ (chưa quay lại) = atRisk hiện tại
+    const notReturnedCount = atRisk.length;
+    // Tỷ lệ xử lý trên cohort (returnedCount / totalCohort)
+    const cohortReturnRate = totalCohort > 0 ? Math.round((returnedCount / totalCohort) * 100) : 0;
 
     // Hàm pad dùng chung cho cả QLĐT và CVHT dashboard
     const pad = (n) => String(n).padStart(2, '0');
@@ -1773,6 +1790,7 @@
           <div><h2>${h.title}</h2><p>${h.sub}</p></div>
           <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
         </div>
+        <!-- Hàng 1: Tổng quan hoạt động -->
         <div class="kpi-grid kpi-grid-4">
           <div class="kpi">
             <div class="label">Lớp phụ trách</div>
@@ -1784,10 +1802,10 @@
             <div class="value">${pending.length}</div>
             <div class="hint">Từ Bí thư / Lớp trưởng</div>
           </div>
-          <div class="kpi ${atRisk.length > 0 ? 'danger' : ''}">
-            <div class="label">SV nguy cơ</div>
-            <div class="value">${atRisk.length}</div>
-            <div class="hint">Case đang mở: ${openEsc.length}</div>
+          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : 'danger'}">
+            <div class="label">Lớp đã vào (2 tuần)</div>
+            <div class="value">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
+            <div class="hint">Phủ ${visitCoverage}% lớp phụ trách</div>
           </div>
           <div class="kpi ${unreadCount() > 0 ? 'info' : ''}">
             <div class="label">Thông báo mới</div>
@@ -1795,22 +1813,49 @@
             <div class="hint">Chưa đọc</div>
           </div>
         </div>
-        <div class="kpi-grid kpi-grid-3" style="margin-top:0">
+
+        <!-- Hàng 2: Theo dõi sinh viên nguy cơ -->
+        <div class="dashboard-section-label">Theo dõi sinh viên nguy cơ</div>
+        <div class="kpi-grid kpi-grid-4" style="margin-top:0">
+          <div class="kpi ${totalCohort > 0 ? 'warn' : ''}">
+            <div class="label">Tổng SV từng nguy cơ</div>
+            <div class="value">${totalCohort}</div>
+            <div class="hint">Đã &amp; đang theo dõi (toàn kỳ)</div>
+          </div>
           <div class="kpi ok">
-            <div class="label">SV quay lại bình thường</div>
+            <div class="label">Đã quay lại ổn định</div>
             <div class="value">${returnedCount}</div>
-            <div class="hint">Từng nguy cơ → ổn định</div>
+            <div class="hint">Nguy cơ / Có vấn đề → Ổn định</div>
           </div>
-          <div class="kpi ${visitCoverage >= 80 ? 'ok' : 'warn'}">
-            <div class="label">Lớp đã vào (2 tuần)</div>
-            <div class="value">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
-            <div class="hint">Phủ ${visitCoverage}% lớp phụ trách</div>
-            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.go('visits')">Ghi vào lớp →</button>
+          <div class="kpi ${notReturnedCount > 0 ? 'danger' : 'ok'}">
+            <div class="label">Chưa quay lại</div>
+            <div class="value">${notReturnedCount}</div>
+            <div class="hint">Còn đang ở trạng thái nguy cơ</div>
           </div>
-          <div class="kpi ok">
-            <div class="label">Tỷ lệ xử lý case</div>
-            <div class="value">${resolveRate}%</div>
+          <div class="kpi ${escalatedStudentIds.size > 0 ? 'warn' : ''}">
+            <div class="label">Đã chuyển lên QLĐT</div>
+            <div class="value">${escalatedStudentIds.size}</div>
+            <div class="hint">Mở: ${openEsc.length} · Đóng: ${closedEsc.length}</div>
+          </div>
+        </div>
+
+        <!-- Hàng 3: Tỷ lệ xử lý -->
+        <div class="kpi-grid kpi-grid-3" style="margin-top:0">
+          <div class="kpi ${cohortReturnRate >= 70 ? 'ok' : cohortReturnRate >= 40 ? 'warn' : totalCohort > 0 ? 'danger' : ''}">
+            <div class="label">Tỷ lệ quay lại ổn định</div>
+            <div class="value">${cohortReturnRate}<small>%</small></div>
+            <div class="hint">${returnedCount}/${totalCohort} SV trong diện theo dõi</div>
+          </div>
+          <div class="kpi ${resolveRate >= 70 ? 'ok' : resolveRate >= 40 ? 'warn' : totalEsc > 0 ? 'danger' : ''}">
+            <div class="label">Tỷ lệ xử lý case QLĐT</div>
+            <div class="value">${resolveRate}<small>%</small></div>
             <div class="hint">${closedEsc.length}/${totalEsc} case đã đóng</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Lớp chưa vào gần đây</div>
+            <div class="value">${classes.length - recentVisitClassIds.size}<small>/${classes.length}</small></div>
+            <div class="hint">Chưa ghi vào lớp trong 2 tuần</div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.go('visits')">Ghi vào lớp →</button>
           </div>
         </div>
         ${pending.length > 0 ? `
