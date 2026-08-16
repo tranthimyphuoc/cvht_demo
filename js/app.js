@@ -466,6 +466,25 @@
     return events.sort((a, b) => new Date(b.at) - new Date(a.at));
   }
 
+  // ── Generic modal helper ──
+  function openModal(bodyHtml, opts = {}) {
+    const width = opts.width || '680px';
+    $('#modalRoot').innerHTML = `
+      <div class="modal-overlay" id="modalOv">
+        <div class="modal" style="max-width:${width};width:92vw;max-height:88vh;overflow-y:auto">
+          <div style="display:flex;justify-content:flex-end;padding:10px 14px 0">
+            <button class="btn btn-ghost btn-sm" id="mClose">✕</button>
+          </div>
+          <div class="modal-body" style="padding:0 20px 20px">${bodyHtml}</div>
+        </div>
+      </div>`;
+    const close = () => { $('#modalRoot').innerHTML = ''; };
+    openModal.close = close;
+    $('#mClose').onclick = close;
+    $('#modalOv').onclick = (e) => { if (e.target.id === 'modalOv') close(); };
+  }
+  openModal.close = () => { $('#modalRoot').innerHTML = ''; };
+
   function openStudentStatusModal(studentId, classId) {
     if (!canEditStudentStatus()) return denyAccess();
     const s = allStudents().find((x) => x.id === studentId);
@@ -1408,16 +1427,19 @@
       const subjectEntries = Object.entries(subjectRisk).sort((a, b) => b[1] - a[1]).slice(0, 6);
       const maxSubject = subjectEntries.length > 0 ? subjectEntries[0][1] : 1;
 
-      // ── Nhật ký hoạt động tuần này (thứ 2 → hiện tại, theo giờ địa phương) ──
+      // ── Nhật ký hoạt động theo tuần (hỗ trợ điều hướng tuần) ──
+      if (state.qdltWeekOffset === undefined) state.qdltWeekOffset = 0;
       const todayJs = new Date();
       const monday = new Date(todayJs);
-      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + state.qdltWeekOffset * 7);
+      const sundayOfWeek = new Date(monday); sundayOfWeek.setDate(monday.getDate() + 6);
       const weekStartStr = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+      const weekEndStr   = `${sundayOfWeek.getFullYear()}-${pad(sundayOfWeek.getMonth() + 1)}-${pad(sundayOfWeek.getDate())}`;
 
-      const weekReports = (db().reports || []).filter((rpt) => (rpt.createdAt || '').slice(0, 10) >= weekStartStr);
-      const weekVisits = (db().visits || []).filter((v) => visitDateOf(v) >= weekStartStr);
-      const weekEscCreated = (db().escalations || []).filter((e) => (e.createdAt || '').slice(0, 10) >= weekStartStr);
-      const weekEscClosed = (db().escalations || []).filter((e) => e.resolvedAt && e.resolvedAt.slice(0, 10) >= weekStartStr);
+      const weekReports = (db().reports || []).filter((rpt) => { const d = (rpt.createdAt || '').slice(0, 10); return d >= weekStartStr && d <= weekEndStr; });
+      const weekVisits = (db().visits || []).filter((v) => { const d = visitDateOf(v); return d >= weekStartStr && d <= weekEndStr; });
+      const weekEscCreated = (db().escalations || []).filter((e) => { const d = (e.createdAt || '').slice(0, 10); return d >= weekStartStr && d <= weekEndStr; });
+      const weekEscClosed = (db().escalations || []).filter((e) => { const d = e.resolvedAt?.slice(0, 10) || ''; return d >= weekStartStr && d <= weekEndStr; });
 
       const actItems = [
         ...weekReports.map((rpt) => {
@@ -1462,23 +1484,37 @@
         const escText = classOpenEsc.length > 0
           ? `<span style="color:var(--danger);font-weight:600">${classOpenEsc.length} case nguy cơ đang mở</span> chờ QLĐT xử lý.`
           : '';
-        return { cls, riskNames, visitText, reportText, escText, riskCount: classAtRiskStudents.length, openCount: classOpenEsc.length };
+        return { cls, riskNames, visitText, reportText, escText, riskCount: classAtRiskStudents.length, openCount: classOpenEsc.length, classWeekVisits, classWeekReports };
       }).filter(Boolean).sort((a, b) => b.openCount - a.openCount || b.riskCount - a.riskCount);
 
+      // Compact table rows — click để xem modal chi tiết
       const weekSummaryHtml = classSummaryItems.length > 0
-        ? classSummaryItems.slice(0, 6).map((item) => `
-            <div class="week-summary-row" onclick="App.go('classes/${item.cls.id}')" style="cursor:pointer">
-              <div class="week-summary-class">
-                <span class="badge badge-muted">${esc(item.cls.campusId || '?')}</span>
-                <strong style="font-size:13px">${esc(item.cls.code)}</strong>
-                <span style="font-size:11.5px;color:var(--muted)">CVHT: ${shortName(item.cls.cvhtId)}</span>
-              </div>
-              <div class="week-summary-body">
-                ${item.riskCount > 0 ? `<p style="margin-bottom:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--danger);margin-right:5px;vertical-align:middle"></span>SV cần theo dõi: ${item.riskNames}</p>` : ''}
-                <p style="color:var(--muted);font-size:12px">${item.visitText} ${item.reportText} ${item.escText}</p>
-              </div>
-            </div>`).join('')
-        : `<div class="empty" style="padding:14px 0">Tất cả lớp đang ổn định — không có vấn đề nổi bật tuần này.</div>`;
+        ? `<table class="data-table" style="font-size:13px">
+            <thead><tr>
+              <th style="width:36px"></th>
+              <th>Lớp</th>
+              <th>CVHT</th>
+              <th style="text-align:center">SV nguy cơ</th>
+              <th style="text-align:center">Vào lớp</th>
+              <th style="text-align:center">Báo cáo</th>
+              <th style="text-align:center">Case mở</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${classSummaryItems.map((item) => `
+              <tr style="cursor:pointer" onclick="App._openWeekDetail('${item.cls.id}')">
+                <td><span class="badge badge-muted" style="font-size:10px">${esc(item.cls.campusId || '?')}</span></td>
+                <td><strong>${esc(item.cls.code)}</strong></td>
+                <td style="color:var(--muted)">${shortName(item.cls.cvhtId)}</td>
+                <td style="text-align:center">${item.riskCount > 0 ? `<span class="badge badge-danger">${item.riskCount}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+                <td style="text-align:center">${item.classWeekVisits?.length > 0 ? '<span style="color:var(--ok);font-weight:700">✓</span>' : '<span style="color:var(--warn);font-weight:700">✗</span>'}</td>
+                <td style="text-align:center">${item.classWeekReports?.length > 0 ? `<span style="color:var(--muted)">${item.classWeekReports.length}</span>` : '<span style="color:var(--muted)">0</span>'}</td>
+                <td style="text-align:center">${item.openCount > 0 ? `<span class="badge badge-warn">${item.openCount}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+                <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();App._openWeekDetail('${item.cls.id}')">Chi tiết →</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`
+        : `<div class="empty" style="padding:14px 0">Tất cả lớp đang ổn định tuần này.</div>`;
 
       $('#content').innerHTML = `
         ${flowBanner()}
@@ -1487,12 +1523,19 @@
           <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
         </div>
 
-        <div class="panel" style="margin-bottom:18px">
+        <div class="panel" style="margin-bottom:18px" id="weekSummaryPanel">
           <div class="panel-head">
-            <h2>Tình hình tuần này · ${monday.toLocaleDateString('vi-VN')} — ${todayJs.toLocaleDateString('vi-VN')}</h2>
-            <span style="font-size:11.5px;color:var(--muted)">${classSummaryItems.length} lớp có vấn đề / ${classes.length} lớp tổng</span>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <h2 style="margin:0">Tình hình tuần · ${monday.toLocaleDateString('vi-VN', {day:'2-digit',month:'2-digit'})} – ${sundayOfWeek.toLocaleDateString('vi-VN', {day:'2-digit',month:'2-digit',year:'numeric'})}</h2>
+              <span style="font-size:11.5px;color:var(--muted)">${classSummaryItems.length}/${classes.length} lớp có vấn đề</span>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-ghost btn-sm" id="btnPrevWeek">← Tuần trước</button>
+              ${state.qdltWeekOffset < 0 ? '<button class="btn btn-ghost btn-sm" id="btnNextWeek">Tuần sau →</button>' : ''}
+              ${state.qdltWeekOffset < 0 ? '<button class="btn btn-ghost btn-sm" id="btnThisWeek">Tuần này</button>' : ''}
+            </div>
           </div>
-          <div class="panel-body" style="padding:12px 18px">
+          <div style="padding:0 4px 4px">
             ${weekSummaryHtml}
           </div>
         </div>
@@ -1748,6 +1791,118 @@
             </table></div>
           </div>
         </div>`;
+
+      // ── Điều hướng tuần & modal chi tiết ──
+      const btnPrev = $('#btnPrevWeek');
+      const btnNext = $('#btnNextWeek');
+      const btnThis = $('#btnThisWeek');
+      if (btnPrev) btnPrev.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) - 1; pageDashboard(); };
+      if (btnNext) btnNext.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) + 1; pageDashboard(); };
+      if (btnThis) btnThis.onclick = () => { state.qdltWeekOffset = 0; pageDashboard(); };
+
+      // Hàm mở modal chi tiết cho 1 lớp trong tuần được chọn
+      App._openWeekDetail = (classId) => {
+        const item = classSummaryItems.find((i) => i.cls.id === classId);
+        if (!item) return;
+        const { cls, riskNames, classWeekVisits = [], classWeekReports = [], classAtRiskStudents, openCount } = item;
+        const classAtRisk = (db().students || []).filter((s) => s.classId === classId && s.status === 'AT_RISK');
+        const weekLabel = `${monday.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} – ${sundayOfWeek.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+        const cvhtName = (db().users || []).find((u) => u.id === cls.cvhtId)?.name || cls.cvhtId || '—';
+        const classEscs = (db().escalations || []).filter((e) => e.classId === classId);
+        const openEscs = classEscs.filter((e) => !e.resolvedAt);
+
+        const riskRows = classAtRisk.length > 0
+          ? classAtRisk.map((s) => `<tr>
+              <td><strong>${esc(s.name)}</strong></td>
+              <td style="font-size:11.5px;color:var(--muted)">${esc(s.statusNote || s.riskReason || '—')}</td>
+              <td>${openEscs.find((e) => e.studentId === s.id) ? '<span class="badge badge-warn">Case mở</span>' : '<span style="color:var(--muted)">—</span>'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="3" class="empty">Không có SV nguy cơ</td></tr>';
+
+        const visitRows = classWeekVisits.length > 0
+          ? classWeekVisits.map((v) => {
+            const vtLabel = (VISIT_TYPES || []).find((t) => t.value === v.visitType)?.label || v.visitType || 'Định kỳ';
+            return `<div style="padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px">
+              <span style="font-weight:600">${Scoring.fmtDateTime(v.visitDate || v.createdAt)}</span>
+              <span style="color:var(--muted);margin-left:8px">${esc(vtLabel)}</span>
+              ${v.note ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${esc(v.note)}</div>` : ''}
+            </div>`;
+          }).join('')
+          : '<div class="empty" style="padding:10px 0">Chưa vào lớp tuần này</div>';
+
+        const reportRows = classWeekReports.length > 0
+          ? classWeekReports.map((rpt) => {
+            const kLabel = { BI_THU: 'Bí thư', LOP_TRUONG: 'LT (CN)', LOP_TRUONG_NN: 'LT (NN)', CVHT_TONG_HOP: 'CVHT tổng hợp' }[rpt.reportKind] || rpt.reportKind;
+            const stLabel = { SENT_TO_CVHT: 'Chờ CVHT', SEEN_BY_CVHT: 'CVHT đã đọc', SENT_TO_QLDT: 'Chờ QLĐT', SEEN_BY_QLDT: 'QLĐT đã đọc', DRAFT: 'Nháp' }[rpt.status] || rpt.status;
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line-soft)">
+              <div>
+                <span class="badge badge-muted">${esc(kLabel)}</span>
+                <span style="font-size:12px;color:var(--muted);margin-left:6px">${esc(shortName(rpt.reporterId))} · ${Scoring.fmtDateTime(rpt.submittedAt || rpt.createdAt)}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:11.5px;color:var(--muted)">${esc(stLabel)}</span>
+                <button class="btn btn-ghost btn-sm" onclick="openModal.close();App.go('reports/${rpt.id}')">Xem →</button>
+              </div>
+            </div>`;
+          }).join('')
+          : '<div class="empty" style="padding:10px 0">Chưa có báo cáo tuần này</div>';
+
+        openModal(`
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+            <div>
+              <h2 style="margin:0;font-size:1.1rem"><strong>${esc(cls.code)}</strong> — Tuần ${weekLabel}</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px">CVHT: ${esc(cvhtName)}</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" id="mdlPrevWeek">← Tuần trước</button>
+              ${state.qdltWeekOffset < 0 ? `<button class="btn btn-ghost btn-sm" id="mdlNextWeek">Tuần sau →</button>` : ''}
+              <button class="btn btn-primary btn-sm" onclick="openModal.close();App.go('classes/${classId}')">Xem lớp →</button>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+            <div class="kpi ${classAtRisk.length > 0 ? 'warn' : ''}" style="padding:10px 14px">
+              <div class="label" style="font-size:11px">SV nguy cơ</div>
+              <div class="value" style="font-size:1.4rem">${classAtRisk.length}</div>
+            </div>
+            <div class="kpi ${classWeekVisits.length > 0 ? 'ok' : 'warn'}" style="padding:10px 14px">
+              <div class="label" style="font-size:11px">Vào lớp tuần này</div>
+              <div class="value" style="font-size:1.4rem">${classWeekVisits.length}</div>
+            </div>
+            <div class="kpi ${openEscs.length > 0 ? 'danger' : ''}" style="padding:10px 14px">
+              <div class="label" style="font-size:11px">Case đang mở</div>
+              <div class="value" style="font-size:1.4rem">${openEscs.length}</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px">Sinh viên nguy cơ</div>
+            <div class="table-wrap"><table class="data-table" style="font-size:12.5px">
+              <thead><tr><th>Tên SV</th><th>Lý do</th><th>Case</th></tr></thead>
+              <tbody>${riskRows}</tbody>
+            </table></div>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px">Lịch vào lớp tuần này (${classWeekVisits.length})</div>
+            ${visitRows}
+          </div>
+
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px">Báo cáo tuần này (${classWeekReports.length})</div>
+            ${reportRows}
+          </div>
+        `);
+
+        // Điều hướng tuần trong modal
+        setTimeout(() => {
+          const mp = document.getElementById('mdlPrevWeek');
+          const mn = document.getElementById('mdlNextWeek');
+          if (mp) mp.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) - 1; openModal.close(); pageDashboard(); setTimeout(() => App._openWeekDetail(classId), 50); };
+          if (mn) mn.onclick = () => { state.qdltWeekOffset = (state.qdltWeekOffset || 0) + 1; openModal.close(); pageDashboard(); setTimeout(() => App._openWeekDetail(classId), 50); };
+        }, 0);
+      };
+
     } else {
       // Dashboard CVHT — weekly activity log
       const todayCvht = new Date();
