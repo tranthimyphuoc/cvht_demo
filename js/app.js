@@ -1791,21 +1791,15 @@
           <button class="btn btn-primary" onclick="App.go('${h.go}')">${h.cta}</button>
         </div>
         <!-- Hàng 1: Tổng quan hoạt động -->
-        <div class="kpi-grid kpi-grid-4">
+        <div class="kpi-grid kpi-grid-3">
           <div class="kpi">
             <div class="label">Lớp phụ trách</div>
             <div class="value">${classes.length}</div>
-            <div class="hint">Trong phạm vi của bạn</div>
           </div>
           <div class="kpi ${pending.length > 0 ? 'warn' : ''}">
             <div class="label">BC chờ xử lý</div>
             <div class="value">${pending.length}</div>
             <div class="hint">Từ Bí thư / Lớp trưởng</div>
-          </div>
-          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : 'danger'}">
-            <div class="label">Lớp đã vào (2 tuần)</div>
-            <div class="value">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
-            <div class="hint">Phủ ${visitCoverage}% lớp phụ trách</div>
           </div>
           <div class="kpi ${unreadCount() > 0 ? 'info' : ''}">
             <div class="label">Thông báo mới</div>
@@ -1847,10 +1841,12 @@
             <div class="value">${resolveRate}<small>%</small></div>
             <div class="hint">${closedEsc.length}/${totalEsc} case đã đóng</div>
           </div>
-          <div class="kpi">
-            <div class="label">Lớp chưa vào gần đây</div>
-            <div class="value">${classes.length - recentVisitClassIds.size}<small>/${classes.length}</small></div>
-            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.go('visits')">Ghi vào lớp →</button>
+          <div class="kpi ${visitCoverage >= 80 ? 'ok' : visitCoverage >= 50 ? 'warn' : classes.length > 0 ? 'danger' : ''}">
+            <div class="label">Tình hình vào lớp</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:4px">
+              <div class="value" style="margin:0">${recentVisitClassIds.size}<small>/${classes.length}</small></div>
+              <button class="btn btn-ghost btn-sm" onclick="App.go('visits')">Ghi vào lớp →</button>
+            </div>
           </div>
         </div>
         ${pending.length > 0 ? `
