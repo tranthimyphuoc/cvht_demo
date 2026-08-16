@@ -1273,14 +1273,15 @@
     const resolveRate = totalEsc > 0 ? Math.round((closedEsc.length / totalEsc) * 100) : 0;
 
     // Tỷ lệ SV quay lại ổn định (AT_RISK/WATCH → ACTIVE trong audit log, chỉ tính SV trong phạm vi)
+    // Format lưu trong auditLog: "STATUS: note" — cần parse code trước khi so sánh
     const scopedStudentIds = new Set(studentsInScope().map((s) => s.id));
     const returnedStudentIds = new Set();
     (db().auditLog || []).forEach((l) => {
       if (l.action !== 'STUDENT_STATUS') return;
       if (!scopedStudentIds.has(l.entityId)) return;
-      const before = String(l.beforeJson || '');
-      const after = String(l.afterJson || '');
-      if ((before === 'AT_RISK' || before === 'WATCH') && after === 'ACTIVE') {
+      const beforeCode = parseStatusSnippet(String(l.beforeJson || '')).code || String(l.beforeJson || '').trim();
+      const afterCode  = parseStatusSnippet(String(l.afterJson  || '')).code || String(l.afterJson  || '').trim();
+      if ((beforeCode === 'AT_RISK' || beforeCode === 'WATCH') && afterCode === 'ACTIVE') {
         returnedStudentIds.add(l.entityId);
       }
     });
