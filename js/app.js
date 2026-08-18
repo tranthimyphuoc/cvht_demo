@@ -5170,8 +5170,12 @@
     $('#mSave').onclick = () => {
       const name = $('#cName').value.trim(), email = $('#cEmail').value.trim();
       if (!name || !email) return toast('Nhập đủ thông tin', 'err');
-      const nu = Store.createUser(user, { name, email, primaryRole: $('#cRole').value, campus: $('#cCampus').value });
-      toast(`Đã tạo ${nu.name}`); closeModal(); navigate(`people/${nu.id}`);
+      try {
+        const nu = Store.createUser(user, { name, email, primaryRole: $('#cRole').value, campus: $('#cCampus').value });
+        toast(`Đã tạo ${nu.name}`); closeModal(); navigate(`people/${nu.id}`);
+      } catch (err) {
+        toast(err.message || 'Không tạo được tài khoản', 'err');
+      }
     };
   }
 

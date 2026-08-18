@@ -455,15 +455,42 @@ function _isSha256Hex_(pw) {
   return /^[a-f0-9]{64}$/i.test(String(pw || ''));
 }
 
+/** Hash SHA-256 + salt — vòng for, không dùng Array.map (Apps Script byte[]). */
+function _hashPasswordSafe_(plaintext) {
+  var salt = (typeof CONFIG !== 'undefined' && CONFIG.PASSWORD_SALT)
+    ? CONFIG.PASSWORD_SALT
+    : 'cvht_salt_rikkei_2025';
+  var bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    salt + ':' + plaintext,
+    Utilities.Charset.UTF_8
+  );
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    hex += (h.length === 1 ? '0' : '') + h;
+  }
+  return hex;
+}
+
 /**
  * Hash mật khẩu plaintext trước khi ghi sheet.
- * Chuỗi đã hash (64 hex) giữ nguyên. Rỗng → hash mặc định '123456'.
+ * Đã hash (64 hex) giữ nguyên. Rỗng → hash mặc định '123456'.
+ * Lỗi hash → trả plaintext để KHÔNG làm fail cả request push (tạo/xóa user).
  */
 function _ensureHashedPassword_(pw) {
-  var s = String(pw == null ? '' : pw).trim();
-  if (_isSha256Hex_(s)) return s;
-  if (!s) s = '123456';
-  return UserService.hashPassword(s);
+  try {
+    var s = String(pw == null ? '' : pw).trim();
+    if (_isSha256Hex_(s)) return s;
+    if (!s) s = '123456';
+    return _hashPasswordSafe_(s);
+  } catch (err) {
+    Logger.log('hash password failed: ' + err);
+    var fallback = String(pw == null ? '' : pw).trim();
+    return fallback || '123456';
+  }
 }
 
 /**
@@ -500,17 +527,22 @@ function _handleLegacyAction(body, e) {
     // - User mới / mật khẩu trống: HASH plaintext trước khi ghi (SHA-256 + salt).
     let rowsToWrite = body.rows || [];
     if (body.sheet === 'Users') {
-      const existingUsers = sheetToObjects_('Users');
-      const passwordMap = {};
-      existingUsers.forEach(function(u) {
-        if (u.id && String(u.password || '').trim()) passwordMap[u.id] = u.password;
-      });
-      rowsToWrite = rowsToWrite.map(function(r) {
-        var existing = passwordMap[r.id];
-        return Object.assign({}, r, {
-          password: existing || _ensureHashedPassword_(r.password),
+      try {
+        const existingUsers = sheetToObjects_('Users');
+        const passwordMap = {};
+        existingUsers.forEach(function(u) {
+          if (u.id && String(u.password || '').trim()) passwordMap[u.id] = u.password;
         });
-      });
+        rowsToWrite = rowsToWrite.map(function(r) {
+          var existing = passwordMap[r.id];
+          return Object.assign({}, r, {
+            password: existing || _ensureHashedPassword_(r.password),
+          });
+        });
+      } catch (err) {
+        Logger.log('Users password merge failed: ' + err);
+        rowsToWrite = body.rows || [];
+      }
     }
 
     writeObjects_(body.sheet, rowsToWrite, headers);

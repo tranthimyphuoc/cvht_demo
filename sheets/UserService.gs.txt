@@ -39,7 +39,15 @@ const UserService = (() => {
       saltedInput,
       Utilities.Charset.UTF_8
     );
-    return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+    // Apps Script trả Java byte[] — không dùng Array.map()
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      if (b < 0) b += 256;
+      var h = b.toString(16);
+      hex += (h.length === 1 ? '0' : '') + h;
+    }
+    return hex;
   }
 
   /**

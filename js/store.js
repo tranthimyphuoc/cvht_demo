@@ -959,13 +959,17 @@ const Store = {
   createUser(actor, payload) {
     const id = this.uid('u');
     const name = (payload.name || '').trim();
+    const email = (payload.email || '').trim().toLowerCase();
+    if (!name || !email) throw new Error('Nhập họ tên và email');
+    const dup = this.get().users.find((u) => String(u.email || '').toLowerCase() === email && u.active !== false);
+    if (dup) throw new Error('Email đã tồn tại: ' + email);
     const parts = name.split(/\s+/);
     const initials = payload.initials || (parts.length >= 2
       ? (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase()
       : (name.slice(0, 2) || 'U').toUpperCase());
     const nu = {
       id,
-      email: (payload.email || '').trim().toLowerCase(),
+      email,
       // Mật khẩu mặc định 123456 — server hash SHA-256 khi ghi Google Sheets.
       // Không để trống: local/offline vẫn đăng nhập được trước khi sync xong.
       password: payload.password || '123456',
