@@ -255,7 +255,7 @@ const Store = {
         primaryRole: o.primaryRole ?? o.role ?? u.primaryRole,
         role: o.role ?? o.primaryRole ?? u.role,
         initials: o.initials ?? u.initials,
-        active: o.active !== undefined ? o.active : u.active,
+        active: u.active === false ? false : (o.active !== undefined ? o.active : u.active),
         password: o.password == null || o.password === '' ? String(u.password || '123456') : String(o.password).trim(),
         aliasOf: o.aliasOf ?? u.aliasOf,
         classId: o.classId ?? u.classId,
@@ -383,15 +383,27 @@ const Store = {
     return this.applyCurriculum(data);
   },
 
-  /** Debounce đẩy toàn bộ lên Sheets sau mỗi lần ghi (tránh spam API) */
+  /** Hàng đợi đẩy Sheets — tuần tự, không song song (tránh clearContents ghi đè lẫn nhau) */
+  _pushChain: Promise.resolve(),
   _sheetsSyncTimer: null,
+
+  enqueueSheetsTask(task) {
+    this._pushChain = this._pushChain.then(task).catch((err) => {
+      console.warn('Sheets queue', err);
+      if (typeof toast === 'function') toast('Lưu Google Sheets thất bại. Thử lại.', 'err');
+    });
+    return this._pushChain;
+  },
+
   scheduleSheetsSync() {
     if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
     if (this._sheetsSyncTimer) clearTimeout(this._sheetsSyncTimer);
     this._sheetsSyncTimer = setTimeout(() => {
       this._sheetsSyncTimer = null;
-      this.pushAllToSheets().catch((err) => console.warn('Sheets auto-sync', err));
-    }, 1200);
+      // Không auto-push Users: tạo/xóa dùng upsert từng dòng, tránh rewrite cả sheet.
+      const names = (SheetsAPI.SHEET_NAMES || []).filter((n) => n !== 'Users');
+      this.queueSheetsPush(names);
+    }, 1600);
   },
 
   reset() {
@@ -464,6 +476,7 @@ const Store = {
       const u = d.users.find((x) => x.id === userId);
       if (!u) return;
       u.active = false;
+      u.updatedAt = new Date().toISOString();
       d.classes.forEach((c) => {
         ['cvhtId', 'ltId', 'btId'].forEach((field) => {
           if (c[field] === userId) c[field] = null;
@@ -481,7 +494,9 @@ const Store = {
         at: new Date().toISOString(),
       });
     });
-    this.queueSheetsPush(['Users', 'Classes', 'AuditLog']);
+    const deleted = this.get().users.find((x) => x.id === userId);
+    this.upsertUserToSheets(deleted);
+    this.queueSheetsPush(['Classes', 'AuditLog']);
   },
 
   /** Soft-delete lớp (active=false) + ẩn SV thuộc lớp */
@@ -952,7 +967,8 @@ const Store = {
       });
       updated = u;
     });
-    this.queueSheetsPush(['Users', 'AuditLog', 'RoleHistory']);
+    this.upsertUserToSheets(updated);
+    this.queueSheetsPush(['AuditLog', 'RoleHistory']);
     return updated;
   },
 
@@ -980,6 +996,7 @@ const Store = {
       initials,
       phone: payload.phone || '',
       active: true,
+      updatedAt: new Date().toISOString(),
     };
     this.update((d) => {
       d.users.push(nu);
@@ -1007,7 +1024,8 @@ const Store = {
         at: new Date().toISOString(),
       });
     });
-    this.queueSheetsPush(['Users', 'AuditLog', 'RoleHistory']);
+    this.upsertUserToSheets(nu);
+    this.queueSheetsPush(['AuditLog', 'RoleHistory']);
     return nu;
   },
 
@@ -1111,20 +1129,39 @@ const Store = {
     return result;
   },
 
-  /** Đẩy snapshot lên Google Sheets (nếu mode = sheets) */
+  /** Đẩy snapshot lên Google Sheets (nếu mode = sheets) — tuần tự từng sheet */
   queueSheetsPush(sheets) {
     if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
-    const snap = SheetsAPI.serializeStore(this.get());
-    (sheets || SheetsAPI.SHEET_NAMES).forEach((name) => {
-      const rows = snap[name];
-      if (rows == null) return;
-      SheetsAPI.pushEntity(name, rows).catch((err) => {
-        console.warn('Sheets push', name, err);
-        // Thông báo người dùng nếu lưu dữ liệu thất bại
-        if (typeof toast === 'function') {
-          toast(`Lưu dữ liệu thất bại (${name}). Kiểm tra kết nối mạng và thử lại.`, 'err');
+    const names = sheets || SheetsAPI.SHEET_NAMES;
+    this.enqueueSheetsTask(async () => {
+      const snap = SheetsAPI.serializeStore(this.get());
+      for (const name of names) {
+        const rows = snap[name];
+        if (rows == null) continue;
+        try {
+          await SheetsAPI.pushEntity(name, rows);
+        } catch (err) {
+          console.warn('Sheets push', name, err);
+          if (typeof toast === 'function') {
+            toast(`Lưu dữ liệu thất bại (${name}). Kiểm tra kết nối mạng và thử lại.`, 'err');
+          }
         }
-      });
+      }
+    });
+  },
+
+  upsertUserToSheets(user) {
+    if (!user || typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+    this.enqueueSheetsTask(async () => {
+      try {
+        await SheetsAPI.upsertEntity('Users', user);
+      } catch (err) {
+        console.warn('Sheets upsert Users', err);
+        if (typeof toast === 'function') {
+          toast('Không lưu được tài khoản lên Google Sheets. Redeploy Apps Script rồi thử lại.', 'err');
+        }
+        throw err;
+      }
     });
   },
 

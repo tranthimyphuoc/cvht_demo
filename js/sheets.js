@@ -71,6 +71,12 @@ const SheetsAPI = {
     return this.request('push', { sheet, rows: normalized, headers: cols });
   },
 
+  async upsertEntity(sheet, row) {
+    const cols = this.SCHEMA[sheet];
+    const normalized = this.toSheetRow(sheet, row, cols);
+    return this.request('upsert', { sheet, row: normalized, headers: cols });
+  },
+
   async appendAudit(entry) {
     return this.request('append', {
       sheet: 'AuditLog',

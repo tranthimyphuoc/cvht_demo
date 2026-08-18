@@ -562,6 +562,24 @@ function _handleLegacyAction(body, e) {
     return jsonResponse_({ ok: true });
   }
 
+  if (action === 'upsert') {
+    const sh = ss.getSheetByName(body.sheet);
+    if (!sh) return jsonResponse_({ error: 'Sheet not found: ' + body.sheet });
+    var rowToUpsert = body.row || {};
+    if (body.sheet === 'Users') {
+      var existingU = findOne_('Users', 'id', rowToUpsert.id);
+      if (existingU && String(existingU.password || '').trim()) {
+        rowToUpsert = Object.assign({}, rowToUpsert, { password: existingU.password });
+      } else {
+        rowToUpsert = Object.assign({}, rowToUpsert, {
+          password: _ensureHashedPassword_(rowToUpsert.password),
+        });
+      }
+    }
+    upsertObject_(body.sheet, rowToUpsert);
+    return jsonResponse_({ ok: true });
+  }
+
   return jsonResponse_({ error: 'Unknown action: ' + action });
 }
 

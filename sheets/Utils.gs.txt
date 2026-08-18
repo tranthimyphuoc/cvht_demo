@@ -118,13 +118,19 @@ function sheetToObjects_(sheetName) {
  * @param {string[]} [headers] - Nếu không truyền, dùng SHEET_HEADERS
  */
 function writeObjects_(sheetName, rows, headers) {
-  const sh = getOrCreateSheet_(sheetName);
-  sh.clearContents();
-  const hdrs = headers || SHEET_HEADERS[sheetName] || (rows.length ? Object.keys(rows[0]) : []);
-  if (!hdrs.length) return;
-  const data = [hdrs, ...rows.map(r => hdrs.map(h => r[h] == null ? '' : r[h]))];
-  sh.getRange(1, 1, data.length, hdrs.length).setValues(data);
-  sh.setFrozenRows(1);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = getOrCreateSheet_(sheetName);
+    sh.clearContents();
+    const hdrs = headers || SHEET_HEADERS[sheetName] || (rows.length ? Object.keys(rows[0]) : []);
+    if (!hdrs.length) return;
+    const data = [hdrs, ...rows.map(r => hdrs.map(h => r[h] == null ? '' : r[h]))];
+    sh.getRange(1, 1, data.length, hdrs.length).setValues(data);
+    sh.setFrozenRows(1);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -133,9 +139,15 @@ function writeObjects_(sheetName, rows, headers) {
  * @param {object} row
  */
 function appendObject_(sheetName, row) {
-  const sh = getOrCreateSheet_(sheetName);
-  const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
-  sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = getOrCreateSheet_(sheetName);
+    const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
+    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -145,34 +157,38 @@ function appendObject_(sheetName, row) {
  * @param {string} [keyField='id']
  */
 function upsertObject_(sheetName, row, keyField) {
-  const key = keyField || 'id';
-  const sh  = getOrCreateSheet_(sheetName);
-  const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
-  const values  = sh.getDataRange().getValues();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const key = keyField || 'id';
+    const sh  = getOrCreateSheet_(sheetName);
+    const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
+    const values  = sh.getDataRange().getValues();
 
-  if (values.length < 1) {
-    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
-    return;
-  }
-  const hdrs = values[0].map(String);
-  const keyIdx = hdrs.indexOf(key);
-  if (keyIdx === -1) { appendObject_(sheetName, row); return; }
-
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][keyIdx]) === String(row[key])) {
-      // Update row tại chỗ
-      const newRow = headers.map(h => {
-        const idx = hdrs.indexOf(h);
-        return idx !== -1 && row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)] || '';
-      });
-      sh.getRange(i + 1, 1, 1, hdrs.length).setValues([hdrs.map(h => {
-        return row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)];
-      })]);
+    if (values.length < 1) {
+      sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
       return;
     }
+    const hdrs = values[0].map(String);
+    const keyIdx = hdrs.indexOf(key);
+    if (keyIdx === -1) {
+      sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+      return;
+    }
+
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][keyIdx]) === String(row[key])) {
+        var out = hdrs.map(function(h) {
+          return row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)];
+        });
+        sh.getRange(i + 1, 1, 1, hdrs.length).setValues([out]);
+        return;
+      }
+    }
+    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+  } finally {
+    lock.releaseLock();
   }
-  // Chưa tồn tại → append
-  appendObject_(sheetName, row);
 }
 
 /**
