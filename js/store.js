@@ -966,6 +966,8 @@ const Store = {
     const nu = {
       id,
       email: (payload.email || '').trim().toLowerCase(),
+      // Mật khẩu mặc định 123456 — server hash SHA-256 khi ghi Google Sheets.
+      // Không để trống: local/offline vẫn đăng nhập được trước khi sync xong.
       password: payload.password || '123456',
       name,
       primaryRole: payload.primaryRole || 'CVHT',

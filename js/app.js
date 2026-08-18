@@ -5162,6 +5162,7 @@
         <div class="field"><label>Vai trò</label>
           <select id="cRole">${APP_ROLES.filter((r) => r !== 'QLDT').map((k) => `<option value="${k}">${ROLE_LABELS[k]}</option>`).join('')}</select></div>
         <div class="field"><label>Campus</label><select id="cCampus"><option value="HN">Hà Nội</option><option value="HCM">HCM</option></select></div>
+        <p style="font-size:12.5px;color:var(--muted);margin:0">Mật khẩu mặc định: <code>123456</code> — hệ thống mã hóa (SHA-256) trước khi lưu. Người dùng đổi sau khi đăng nhập. Dùng <strong>Đặt lại mật khẩu</strong> nếu cần cấp mật khẩu khác.</p>
       </div>
       <div class="modal-foot"><button class="btn btn-ghost" id="mCancel">Hủy</button><button class="btn btn-primary" id="mSave">Tạo</button></div>
     </div></div>`;

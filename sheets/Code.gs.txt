@@ -450,6 +450,22 @@ function _routeAdmin(action, method, body, headers) {
 // BACKWARD COMPAT (Action-based — dành cho frontend cũ)
 // ══════════════════════════════════════════════════════════════════════
 
+/** SHA-256 hex 64 ký tự — đã hash, không hash lại. */
+function _isSha256Hex_(pw) {
+  return /^[a-f0-9]{64}$/i.test(String(pw || ''));
+}
+
+/**
+ * Hash mật khẩu plaintext trước khi ghi sheet.
+ * Chuỗi đã hash (64 hex) giữ nguyên. Rỗng → hash mặc định '123456'.
+ */
+function _ensureHashedPassword_(pw) {
+  var s = String(pw == null ? '' : pw).trim();
+  if (_isSha256Hex_(s)) return s;
+  if (!s) s = '123456';
+  return UserService.hashPassword(s);
+}
+
 /**
  * Xử lý các action cũ: pullAll, push, append, setup.
  * Đảm bảo frontend hiện tại không bị break.
@@ -479,17 +495,20 @@ function _handleLegacyAction(body, e) {
       ? body.headers
       : (SHEET_HEADERS[body.sheet] || Object.keys((body.rows && body.rows[0]) || { id: '' }));
 
-    // ── Bảo vệ password: KHÔNG bao giờ cho frontend legacy push ghi đè password ──
-    // Password chỉ được quản lý bởi JWT API (POST /auth/change-password, POST /users/{id}/reset-password).
-    // Frontend localStorage có thể chứa password cũ (cache 10 phút) → nếu push thẳng sẽ revert mật khẩu đã đổi.
+    // ── Bảo vệ + hash password trên sheet Users ──
+    // - User đã có: GIỮ nguyên hash trên sheet (không cho frontend ghi đè).
+    // - User mới / mật khẩu trống: HASH plaintext trước khi ghi (SHA-256 + salt).
     let rowsToWrite = body.rows || [];
     if (body.sheet === 'Users') {
       const existingUsers = sheetToObjects_('Users');
       const passwordMap = {};
-      existingUsers.forEach(function(u) { if (u.id) passwordMap[u.id] = u.password; });
+      existingUsers.forEach(function(u) {
+        if (u.id && String(u.password || '').trim()) passwordMap[u.id] = u.password;
+      });
       rowsToWrite = rowsToWrite.map(function(r) {
+        var existing = passwordMap[r.id];
         return Object.assign({}, r, {
-          password: passwordMap[r.id] !== undefined ? passwordMap[r.id] : (r.password || ''),
+          password: existing || _ensureHashedPassword_(r.password),
         });
       });
     }
@@ -501,7 +520,13 @@ function _handleLegacyAction(body, e) {
   if (action === 'append') {
     const sh = ss.getSheetByName(body.sheet);
     if (!sh) return jsonResponse_({ error: 'Sheet not found' });
-    appendObject_(body.sheet, body.row);
+    var rowToAppend = body.row || {};
+    if (body.sheet === 'Users') {
+      rowToAppend = Object.assign({}, rowToAppend, {
+        password: _ensureHashedPassword_(rowToAppend.password),
+      });
+    }
+    appendObject_(body.sheet, rowToAppend);
     return jsonResponse_({ ok: true });
   }
 
