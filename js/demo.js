@@ -170,19 +170,9 @@ const DemoKit = {
         attachments: [
           {
             id: Store.uid('att'),
-            name: 'bien_ban_vao_lop.png',
-            type: 'image/png',
-            size: 420,
-            kind: 'image',
-            dataUrl: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect fill="#F4F4F5" width="320" height="200"/><rect fill="#C8102E" x="20" y="20" width="48" height="48" rx="10"/><text x="80" y="50" font-family="sans-serif" font-size="16" font-weight="700" fill="#0F0F10">Biên bản vào lớp</text><text x="20" y="100" font-family="sans-serif" font-size="13" fill="#71717A">' + DEMO_CLASS_CODE + ' · Demo minh chứng</text><text x="20" y="128" font-family="sans-serif" font-size="12" fill="#A1A1AA">CVHT đính kèm khi gửi QLĐT</text></svg>'),
-          },
-          {
-            id: Store.uid('att'),
-            name: 'tom_tat_tuan.txt',
-            type: 'text/plain',
-            size: 86,
-            kind: 'file',
-            dataUrl: 'data:text/plain;base64,' + btoa('Tom tat tuan — lop on dinh, 2 SV nguy co dang theo doi.'),
+            name: 'Biên bản vào lớp (Drive)',
+            kind: 'drive',
+            url: 'https://drive.google.com',
           },
         ],
         createdAt: now, submittedAt: now, recipientRole: 'QLDT',

@@ -81,18 +81,6 @@ const SheetsAPI = {
     return this.request('setUserActive', { userId, active: !!active });
   },
 
-  async uploadFile({ name, mimeType, dataUrl }) {
-    const raw = String(dataUrl || '');
-    const comma = raw.indexOf(',');
-    const data = comma >= 0 ? raw.slice(comma + 1) : raw;
-    if (!data) throw new Error('File trống');
-    return this.request('uploadFile', {
-      name: name || 'file',
-      mimeType: mimeType || 'application/octet-stream',
-      data,
-    });
-  },
-
   async appendAudit(entry) {
     return this.request('append', {
       sheet: 'AuditLog',

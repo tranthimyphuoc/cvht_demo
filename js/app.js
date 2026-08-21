@@ -578,70 +578,76 @@
     Store.queueSheetsPush(['Notifications']);
   }
 
-  /* ---------- Attachments (ảnh + file → Google Drive, metadata trên Sheet) ---------- */
-  const ATTACH = {
-    MAX_FILES: 8,
-    MAX_BYTES: 1.5 * 1024 * 1024, // 1.5MB / file
-    ACCEPT: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip',
-  };
+  /* ---------- Minh chứng: dán link Google Drive (không upload file lên hệ thống) ---------- */
+  const ATTACH = { MAX_LINKS: 12 };
 
-  function slimAttachment(a) {
-    return {
-      id: a.id,
-      name: a.name,
-      type: a.type,
-      size: a.size,
-      kind: a.kind,
-      url: a.url || a.viewUrl || '',
-      driveId: a.driveId || '',
-      downloadUrl: a.downloadUrl || '',
-    };
+  function driveFileId(url) {
+    const u = String(url || '');
+    const m = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{20,})/) || u.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+    return m ? m[1] : '';
   }
 
-  function attachHref(a) {
-    if (a.dataUrl) return a.dataUrl;
-    if (a.downloadUrl) return a.downloadUrl;
-    if (a.driveId) return 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(a.driveId);
-    return a.viewUrl || a.url || '';
+  function attachOpenHref(a) {
+    const url = String(a?.url || a?.viewUrl || a?.downloadUrl || a?.dataUrl || '').trim();
+    if (url && url.startsWith('data:')) return url;
+    const id = a?.driveId || driveFileId(url);
+    if (id) return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
+    return url;
   }
 
-  function attachImgSrc(a) {
-    if (a.dataUrl && String(a.dataUrl).startsWith('data:')) return a.dataUrl;
-    if (a.driveId) return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(a.driveId) + '&sz=w1600';
-    return attachHref(a);
+  function guessAttachName(url, fallback) {
+    if (fallback) return fallback;
+    try {
+      const path = decodeURIComponent(new URL(url).pathname || '');
+      const last = path.split('/').filter(Boolean).pop() || '';
+      if (last && last !== 'view' && last !== 'open' && !/^[a-zA-Z0-9_-]{20,}$/.test(last)) return last;
+    } catch { /* ignore */ }
+    return driveFileId(url) ? 'Link Google Drive' : 'Link minh chứng';
   }
 
-  async function uploadAttachmentsForSheets(list) {
-    const items = Array.isArray(list) ? list : [];
-    if (!items.length) return [];
-    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
-      return items.map((a) => (a.driveId ? slimAttachment(a) : { ...slimAttachment(a), dataUrl: a.dataUrl }));
+  function guessAttachKind(url, name) {
+    const s = `${url || ''} ${name || ''}`;
+    if (/\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(s)) return 'image';
+    if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|txt)(\?|$)/i.test(s)) return 'file';
+    if (driveFileId(url)) return 'drive';
+    return 'link';
+  }
+
+  function attachKindIcon(kind) {
+    if (kind === 'image') return '🖼';
+    if (kind === 'file') return '📄';
+    if (kind === 'drive') return '☁';
+    return '🔗';
+  }
+
+  function normalizeAttachLinks(list) {
+    return (Array.isArray(list) ? list : []).map((a) => {
+      const url = attachOpenHref(a);
+      return {
+        id: a.id || Store.uid('att'),
+        name: (a.name || guessAttachName(url, '')).trim() || guessAttachName(url),
+        kind: a.kind || guessAttachKind(url, a.name),
+        url,
+        driveId: a.driveId || driveFileId(url) || '',
+      };
+    }).filter((a) => a.url);
+  }
+
+  function parsePastedLinks(text) {
+    return String(text || '')
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => (/^https?:\/\//i.test(s) ? s : `https://${s}`));
+  }
+
+  function isHttpUrl(s) {
+    try {
+      const u = new URL(s);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
     }
-    const out = [];
-    for (const a of items) {
-      if (a.driveId) { out.push(slimAttachment(a)); continue; }
-      if (!a.dataUrl) { out.push(slimAttachment(a)); continue; }
-      try {
-        const res = await SheetsAPI.uploadFile({ name: a.name, mimeType: a.type, dataUrl: a.dataUrl });
-        out.push({
-          ...slimAttachment(a),
-          driveId: res.fileId,
-          url: res.viewUrl || res.url || '',
-          downloadUrl: res.downloadUrl || res.url || '',
-          viewUrl: res.viewUrl || '',
-        });
-      } catch (err) {
-        const msg = String(err.message || err);
-        if (/Unknown action/i.test(msg)) {
-          toast('Apps Script chưa hỗ trợ lưu file. Copy Code.gs + Utils.gs, Deploy → New version. Ghi chú vẫn được lưu.', 'err');
-          out.push(slimAttachment(a));
-          continue;
-        }
-        toast('Không tải được “' + a.name + '”: ' + msg + '. Báo cáo vẫn lưu ghi chú.', 'err');
-        out.push(slimAttachment(a));
-      }
-    }
-    return out;
   }
 
   async function syncReportToSheets(reportId) {
@@ -661,58 +667,35 @@
     }).catch((err) => console.warn('refreshRouteData', err));
   }
 
-  function fmtSize(n) {
-    if (n < 1024) return `${n} B`;
-    if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1048576).toFixed(1)} MB`;
-  }
-
-  function isImageType(type, name = '') {
-    return (type || '').startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
-  }
-
   function attachPanelHtml(list = []) {
-    const imgs = list.filter((a) => a.kind === 'image');
-    const files = list.filter((a) => a.kind !== 'image');
+    const items = list || [];
     return `
       <div class="attach-panel" id="attachPanel">
         <div class="attach-head">
           <div>
             <strong>Đính kèm minh chứng</strong>
-            <div class="attach-hint">Ảnh / file minh chứng · tối đa ${ATTACH.MAX_FILES} file · mỗi file ≤ 1.5MB · lưu Google Drive</div>
+            <div class="attach-hint">Tải ảnh / file lên Google Drive cá nhân (chia sẻ: bất kỳ ai có liên kết), rồi dán link vào đây. Tối đa ${ATTACH.MAX_LINKS} link.</div>
           </div>
         </div>
-        <div class="attach-actions">
-          <label class="btn btn-ghost btn-sm attach-btn">
-            🖼 Thêm ảnh
-            <input type="file" id="attachImages" accept="image/*" multiple hidden />
-          </label>
-          <label class="btn btn-ghost btn-sm attach-btn">
-            📎 Thêm file
-            <input type="file" id="attachFiles" accept="${ATTACH.ACCEPT}" multiple hidden />
-          </label>
-        </div>
-        <div class="attach-drop" id="attachDrop">Kéo thả ảnh / file vào đây, hoặc dùng nút bên trên</div>
-        <div class="attach-previews" id="attachPreviews">
-          ${imgs.map((a) => `
-            <div class="attach-thumb" data-aid="${a.id}">
-              <img src="${attachImgSrc(a)}" alt="${escAttr(a.name)}" />
-              <button type="button" class="attach-remove" data-remove="${a.id}" title="Xóa">×</button>
-              <span class="attach-name">${esc(a.name)}</span>
-            </div>`).join('')}
+        <div class="attach-link-form">
+          <input type="url" id="attachLinkUrl" placeholder="Dán link Google Drive hoặc https://…" autocomplete="off" />
+          <input type="text" id="attachLinkName" placeholder="Tên gợi nhớ (không bắt buộc)" autocomplete="off" />
+          <button type="button" class="btn btn-primary btn-sm" id="btnAddAttachLink">+ Thêm link</button>
         </div>
         <div class="attach-files" id="attachFilesList">
-          ${files.map((a) => `
-            <div class="attach-file-row" data-aid="${a.id}">
-              <span class="attach-file-icon">📄</span>
+          ${items.map((a) => {
+            const href = attachOpenHref(a);
+            return `<div class="attach-file-row" data-aid="${a.id}">
+              <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
               <div class="attach-file-meta">
-                <strong>${esc(a.name)}</strong>
-                <span>${fmtSize(a.size)} · ${esc(a.type || 'file')}</span>
+                <strong>${esc(a.name || 'Link minh chứng')}</strong>
+                <span>${esc(href)}</span>
               </div>
               <button type="button" class="btn btn-ghost btn-sm" data-remove="${a.id}">Xóa</button>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
         </div>
-        ${!list.length ? '<div class="attach-empty" id="attachEmpty">Chưa có đính kèm</div>' : ''}
+        ${!items.length ? '<div class="attach-empty" id="attachEmpty">Chưa có link minh chứng</div>' : ''}
       </div>`;
   }
 
@@ -720,69 +703,66 @@
     const items = list || [];
     if (!items.length) {
       return `<div class="panel"><div class="panel-head"><h2>Đính kèm minh chứng</h2></div>
-        <div class="panel-body"><div class="attach-empty">Không có file / ảnh đính kèm</div></div></div>`;
+        <div class="panel-body"><div class="attach-empty">Không có link minh chứng</div></div></div>`;
     }
-    const imgs = items.filter((a) => a.kind === 'image');
-    const files = items.filter((a) => a.kind !== 'image');
     return `
       <div class="panel"><div class="panel-head"><h2>Đính kèm minh chứng (${items.length})</h2></div>
         <div class="panel-body">
-          ${imgs.length ? `<div class="attach-previews view">${imgs.map((a) => `
-            <a class="attach-thumb" href="${attachHref(a)}" target="_blank" rel="noopener" title="${escAttr(a.name)}">
-              <img src="${attachImgSrc(a)}" alt="${escAttr(a.name)}" />
-              <span class="attach-name">${esc(a.name)}</span>
-            </a>`).join('')}</div>` : ''}
-          ${files.length ? `<div class="attach-files">${files.map((a) => `
-            <a class="attach-file-row" href="${attachHref(a)}" download="${escAttr(a.name)}" target="_blank" rel="noopener">
-              <span class="attach-file-icon">📄</span>
+          <div class="attach-files">${items.map((a) => {
+            const href = attachOpenHref(a);
+            const canOpen = !!href && (href.startsWith('data:') || isHttpUrl(href) || href.startsWith('https://drive.google.com'));
+            return `<${canOpen ? `a href="${escAttr(href)}" target="_blank" rel="noopener"` : 'div'} class="attach-file-row">
+              <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
               <div class="attach-file-meta">
-                <strong>${esc(a.name)}</strong>
-                <span>${fmtSize(a.size)} · Tải xuống</span>
+                <strong>${esc(a.name || 'Link minh chứng')}</strong>
+                <span>${canOpen ? 'Bấm để mở trên Drive / trình duyệt' : 'Thiếu link — người gửi cần dán lại'}</span>
               </div>
-            </a>`).join('')}</div>` : ''}
+            </${canOpen ? 'a' : 'div'}>`;
+          }).join('')}</div>
         </div>
       </div>`;
   }
 
   function bindAttachments(getList, setList, onChange) {
-    const readFiles = (fileList, forceKind) => {
-      const files = [...fileList];
-      if (!files.length) return;
-      let list = getList();
-      files.forEach((file) => {
-        if (list.length >= ATTACH.MAX_FILES) {
-          toast(`Tối đa ${ATTACH.MAX_FILES} file`, 'err');
-          return;
-        }
-        if (file.size > ATTACH.MAX_BYTES) {
-          toast(`“${file.name}” vượt 1.5MB — hãy nén hoặc chọn file nhỏ hơn`, 'err');
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const kind = forceKind || (isImageType(file.type, file.name) ? 'image' : 'file');
-          list = getList();
-          if (list.length >= ATTACH.MAX_FILES) return;
-          list.push({
-            id: Store.uid('att'),
-            name: file.name,
-            type: file.type || 'application/octet-stream',
-            size: file.size,
-            kind,
-            dataUrl: reader.result,
-          });
-          setList(list);
-          onChange();
-        };
-        reader.onerror = () => toast(`Không đọc được “${file.name}”`, 'err');
-        reader.readAsDataURL(file);
+    const addFromInputs = () => {
+      const raw = ($('#attachLinkUrl')?.value || '').trim();
+      const label = ($('#attachLinkName')?.value || '').trim();
+      if (!raw) return toast('Dán link Google Drive vào ô bên trên', 'err');
+      const urls = parsePastedLinks(raw);
+      let list = getList().slice();
+      let added = 0;
+      urls.forEach((url) => {
+        if (!isHttpUrl(url)) return;
+        if (list.length >= ATTACH.MAX_LINKS) return;
+        if (list.some((a) => attachOpenHref(a) === attachOpenHref({ url }))) return;
+        list.push({
+          id: Store.uid('att'),
+          name: guessAttachName(url, label),
+          kind: guessAttachKind(url, label),
+          url: attachOpenHref({ url }),
+          driveId: driveFileId(url),
+        });
+        added += 1;
       });
+      if (!added) return toast('Link không hợp lệ hoặc đã thêm rồi', 'err');
+      if (list.length > ATTACH.MAX_LINKS) {
+        list = list.slice(0, ATTACH.MAX_LINKS);
+        toast(`Tối đa ${ATTACH.MAX_LINKS} link`, 'err');
+      }
+      setList(list);
+      if ($('#attachLinkUrl')) $('#attachLinkUrl').value = '';
+      if ($('#attachLinkName')) $('#attachLinkName').value = '';
+      onChange();
     };
 
-    const imgInput = $('#attachImages');
-    const fileInput = $('#attachFiles');
-    if (imgInput) imgInput.onchange = () => { readFiles(imgInput.files, 'image'); imgInput.value = ''; };
-    if (fileInput) fileInput.onchange = () => { readFiles(fileInput.files); fileInput.value = ''; };
+    const addBtn = $('#btnAddAttachLink');
+    if (addBtn) addBtn.onclick = (e) => { e.preventDefault(); addFromInputs(); };
+    const urlInp = $('#attachLinkUrl');
+    if (urlInp) {
+      urlInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addFromInputs(); }
+      });
+    }
 
     $$('[data-remove]').forEach((btn) => {
       btn.onclick = (e) => {
@@ -792,19 +772,6 @@
         onChange();
       };
     });
-
-    const drop = $('#attachDrop');
-    if (drop) {
-      ['dragenter', 'dragover'].forEach((ev) => {
-        drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); });
-      });
-      ['dragleave', 'drop'].forEach((ev) => {
-        drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); });
-      });
-      drop.addEventListener('drop', (e) => {
-        readFiles(e.dataTransfer?.files || []);
-      });
-    }
   }
 
   /* ---------- RBAC ---------- */
@@ -3151,13 +3118,7 @@
         const editId = state.editingReportId;
         const summaryNote = $('#nnSummary')?.value || '';
         toast('Đang lưu báo cáo lên Google Sheets…');
-        let attachments = [];
-        try {
-          attachments = await uploadAttachmentsForSheets([...(state.nnAttachments || [])]);
-        } catch (err) {
-          toast(err.message || 'Không lưu được file đính kèm', 'err');
-          return;
-        }
+        const attachments = normalizeAttachLinks(state.nnAttachments || []);
         let reportId = editId;
         Store.update((d) => {
           const existing = editId ? d.reports.find((x) => x.id === editId && x.status === 'DRAFT') : null;
@@ -3341,13 +3302,7 @@
         const editId = editingCvht?.id || null;
         const summaryNote = $('#summaryNote')?.value || '';
         toast('Đang lưu báo cáo lên Google Sheets…');
-        let attachments = [];
-        try {
-          attachments = await uploadAttachmentsForSheets([...(state.cvhtAttachments || [])]);
-        } catch (err) {
-          toast(err.message || 'Không lưu được file đính kèm', 'err');
-          return;
-        }
+        const attachments = normalizeAttachLinks(state.cvhtAttachments || []);
         let reportId = editId;
         Store.update((d) => {
           const existing = editId ? d.reports.find((x) => x.id === editId && x.status === 'DRAFT') : null;
@@ -3610,7 +3565,7 @@
                 <li><strong style="color:var(--ink)">80–89%</strong> → Khoảng 80% điểm tối đa (đạt cơ bản)</li>
                 <li><strong style="color:var(--ink)">&lt; 80%</strong> → 0 điểm (không đạt ngưỡng tối thiểu)</li>
               </ul>
-              <p style="margin-top:8px"><strong style="color:var(--brand)">Lưu ý:</strong> CVHT có thể điều chỉnh lại điểm sau khi xem xét minh chứng. Ghi chú chi tiết và đính kèm minh chứng để báo cáo được chấp thuận chính xác.</p>
+              <p style="margin-top:8px"><strong style="color:var(--brand)">Lưu ý:</strong> CVHT có thể điều chỉnh lại điểm sau khi xem xét minh chứng. Ghi chú chi tiết và dán link Drive để báo cáo được chấp thuận chính xác.</p>
             </div>
           </details>
         </div>
@@ -3745,16 +3700,8 @@
         const btnS = $('#btnSubmit');
         if (btnD) btnD.disabled = true;
         if (btnS) btnS.disabled = true;
-        let attachments = [];
-        try {
-          toast('Đang lưu báo cáo lên Google Sheets…');
-          attachments = await uploadAttachmentsForSheets([...(state.reportDraft.attachments || [])]);
-        } catch (err) {
-          toast(err.message || 'Không lưu được file đính kèm', 'err');
-          if (btnD) btnD.disabled = false;
-          if (btnS) btnS.disabled = false;
-          return;
-        }
+        toast('Đang lưu báo cáo lên Google Sheets…');
+        const attachments = normalizeAttachLinks(state.reportDraft.attachments || []);
 
         let reportId = editId;
         Store.update((d) => {
