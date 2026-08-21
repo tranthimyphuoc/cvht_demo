@@ -77,6 +77,22 @@ const SheetsAPI = {
     return this.request('upsert', { sheet, row: normalized, headers: cols });
   },
 
+  async setUserActive(userId, active) {
+    return this.request('setUserActive', { userId, active: !!active });
+  },
+
+  async uploadFile({ name, mimeType, dataUrl }) {
+    const raw = String(dataUrl || '');
+    const comma = raw.indexOf(',');
+    const data = comma >= 0 ? raw.slice(comma + 1) : raw;
+    if (!data) throw new Error('File trống');
+    return this.request('uploadFile', {
+      name: name || 'file',
+      mimeType: mimeType || 'application/octet-stream',
+      data,
+    });
+  },
+
   async appendAudit(entry) {
     return this.request('append', {
       sheet: 'AuditLog',
@@ -112,7 +128,23 @@ const SheetsAPI = {
     c.forEach((k) => {
       let v = o[k];
       if (k === 'formDataJson') v = this.jsonStr(o.formDataJson ?? o.formData);
-      else if (k === 'attachmentsJson') v = this.jsonStr(o.attachmentsJson ?? o.attachments);
+      else if (k === 'attachmentsJson') {
+        const list = o.attachmentsJson ?? o.attachments;
+        if (Array.isArray(list)) {
+          v = this.jsonStr(list.map((a) => ({
+            id: a.id,
+            name: a.name,
+            type: a.type,
+            size: a.size,
+            kind: a.kind,
+            url: a.url || a.viewUrl || '',
+            driveId: a.driveId || '',
+            downloadUrl: a.downloadUrl || '',
+          })));
+        } else {
+          v = this.jsonStr(list);
+        }
+      }
       else if (k === 'linkedReportIdsJson') v = this.jsonStr(o.linkedReportIdsJson ?? o.linkedReportIds);
       else if (k === 'adjustedScoresJson') v = o.adjustedScoresJson != null ? o.adjustedScoresJson : (o.adjustedScores ? this.jsonStr(o.adjustedScores) : '');
       else if (k === 'notesJson') v = this.jsonStr(o.notesJson ?? o.notes);
@@ -154,6 +186,10 @@ const SheetsAPI = {
     if (sheet === 'Reports') {
       o.formData = this.jsonParse(o.formDataJson, {});
       o.attachments = this.jsonParse(o.attachmentsJson, []);
+      if (!Array.isArray(o.attachments)) o.attachments = [];
+      o.summaryNote = o.summaryNote == null ? '' : String(o.summaryNote);
+      o.activityNote = o.activityNote == null ? '' : String(o.activityNote);
+      o.reviewNote = o.reviewNote == null ? '' : String(o.reviewNote);
       o.linkedReportIds = this.jsonParse(o.linkedReportIdsJson, []);
       o.adjustedScores = this.jsonParse(o.adjustedScoresJson, null);
       o.totalScore = o.totalScore === '' || o.totalScore == null ? null : Number(o.totalScore);

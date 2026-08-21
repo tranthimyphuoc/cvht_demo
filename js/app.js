@@ -68,13 +68,14 @@
     navigate(go);
   }
 
-  function submitDraftNow(id) {
+  async function submitDraftNow(id) {
     const r = (db().reports || []).find((x) => x.id === id);
     if (!canEditDraft(r)) return toast('Không thể gửi báo cáo này', 'err');
     const cls = classById(r.classId);
     const status = submitStatusForKind(r.reportKind);
     const now = new Date();
     const isLate = Scoring.isLate(now);
+    toast('Đang gửi lên Google Sheets…');
     Store.update((d) => {
       const item = d.reports.find((x) => x.id === id);
       if (!item || item.status !== 'DRAFT') return;
@@ -92,7 +93,13 @@
         beforeJson: 'DRAFT', afterJson: JSON.stringify({ status, classId: item.classId }),
         at: now.toISOString(),
       });
-    });
+    }, { skipAutoSync: true });
+    try {
+      await syncReportToSheets(id);
+      Store.queueSheetsPush(['AuditLog', 'LateCounts']);
+    } catch (err) {
+      return;
+    }
 
     if (status === 'SENT_TO_CVHT' && cls) {
       notify(cvhtNotifyIds(cls.cvhtId), `BC mới — ${cls.code}`, `${user.name} đã gửi báo cáo từ bản nháp.`);
@@ -567,15 +574,92 @@
       [...new Set(userIds.filter(Boolean))].forEach((uid) => {
         d.notifications.unshift({ id: Store.uid('n'), userId: uid, title, body, read: false, createdAt: now });
       });
-    });
+    }, { skipAutoSync: true });
+    Store.queueSheetsPush(['Notifications']);
   }
 
-  /* ---------- Attachments (ảnh + file, lưu local base64) ---------- */
+  /* ---------- Attachments (ảnh + file → Google Drive, metadata trên Sheet) ---------- */
   const ATTACH = {
     MAX_FILES: 8,
-    MAX_BYTES: 1.5 * 1024 * 1024, // 1.5MB / file (localStorage)
+    MAX_BYTES: 1.5 * 1024 * 1024, // 1.5MB / file
     ACCEPT: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip',
   };
+
+  function slimAttachment(a) {
+    return {
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      size: a.size,
+      kind: a.kind,
+      url: a.url || a.viewUrl || '',
+      driveId: a.driveId || '',
+      downloadUrl: a.downloadUrl || '',
+    };
+  }
+
+  function attachHref(a) {
+    if (a.dataUrl) return a.dataUrl;
+    if (a.downloadUrl) return a.downloadUrl;
+    if (a.driveId) return 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(a.driveId);
+    return a.viewUrl || a.url || '';
+  }
+
+  function attachImgSrc(a) {
+    if (a.dataUrl && String(a.dataUrl).startsWith('data:')) return a.dataUrl;
+    if (a.driveId) return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(a.driveId) + '&sz=w1600';
+    return attachHref(a);
+  }
+
+  async function uploadAttachmentsForSheets(list) {
+    const items = Array.isArray(list) ? list : [];
+    if (!items.length) return [];
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
+      return items.map((a) => (a.driveId ? slimAttachment(a) : { ...slimAttachment(a), dataUrl: a.dataUrl }));
+    }
+    const out = [];
+    for (const a of items) {
+      if (a.driveId) { out.push(slimAttachment(a)); continue; }
+      if (!a.dataUrl) { out.push(slimAttachment(a)); continue; }
+      try {
+        const res = await SheetsAPI.uploadFile({ name: a.name, mimeType: a.type, dataUrl: a.dataUrl });
+        out.push({
+          ...slimAttachment(a),
+          driveId: res.fileId,
+          url: res.viewUrl || res.url || '',
+          downloadUrl: res.downloadUrl || res.url || '',
+          viewUrl: res.viewUrl || '',
+        });
+      } catch (err) {
+        const msg = String(err.message || err);
+        if (/Unknown action/i.test(msg)) {
+          toast('Apps Script chưa hỗ trợ lưu file. Copy Code.gs + Utils.gs, Deploy → New version. Ghi chú vẫn được lưu.', 'err');
+          out.push(slimAttachment(a));
+          continue;
+        }
+        toast('Không tải được “' + a.name + '”: ' + msg + '. Báo cáo vẫn lưu ghi chú.', 'err');
+        out.push(slimAttachment(a));
+      }
+    }
+    return out;
+  }
+
+  async function syncReportToSheets(reportId) {
+    const report = (Store.get().reports || []).find((x) => x.id === reportId);
+    if (!report) return;
+    await Store.upsertRowToSheets('Reports', report);
+  }
+
+  const _routePullAt = {};
+  function refreshRouteData(key, redraw) {
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+    const last = _routePullAt[key] || 0;
+    if (Date.now() - last < 12000) return;
+    _routePullAt[key] = Date.now();
+    Store.pullFromSheets({ force: true }).then(() => {
+      if (typeof redraw === 'function') redraw();
+    }).catch((err) => console.warn('refreshRouteData', err));
+  }
 
   function fmtSize(n) {
     if (n < 1024) return `${n} B`;
@@ -595,7 +679,7 @@
         <div class="attach-head">
           <div>
             <strong>Đính kèm minh chứng</strong>
-            <div class="attach-hint">Ảnh chụp màn hình, biên bản, file báo cáo · tối đa ${ATTACH.MAX_FILES} file · mỗi file ≤ 1.5MB</div>
+            <div class="attach-hint">Ảnh / file minh chứng · tối đa ${ATTACH.MAX_FILES} file · mỗi file ≤ 1.5MB · lưu Google Drive</div>
           </div>
         </div>
         <div class="attach-actions">
@@ -612,7 +696,7 @@
         <div class="attach-previews" id="attachPreviews">
           ${imgs.map((a) => `
             <div class="attach-thumb" data-aid="${a.id}">
-              <img src="${a.dataUrl}" alt="${escAttr(a.name)}" />
+              <img src="${attachImgSrc(a)}" alt="${escAttr(a.name)}" />
               <button type="button" class="attach-remove" data-remove="${a.id}" title="Xóa">×</button>
               <span class="attach-name">${esc(a.name)}</span>
             </div>`).join('')}
@@ -644,12 +728,12 @@
       <div class="panel"><div class="panel-head"><h2>Đính kèm minh chứng (${items.length})</h2></div>
         <div class="panel-body">
           ${imgs.length ? `<div class="attach-previews view">${imgs.map((a) => `
-            <a class="attach-thumb" href="${a.dataUrl}" target="_blank" rel="noopener" title="${escAttr(a.name)}">
-              <img src="${a.dataUrl}" alt="${escAttr(a.name)}" />
+            <a class="attach-thumb" href="${attachHref(a)}" target="_blank" rel="noopener" title="${escAttr(a.name)}">
+              <img src="${attachImgSrc(a)}" alt="${escAttr(a.name)}" />
               <span class="attach-name">${esc(a.name)}</span>
             </a>`).join('')}</div>` : ''}
           ${files.length ? `<div class="attach-files">${files.map((a) => `
-            <a class="attach-file-row" href="${a.dataUrl}" download="${escAttr(a.name)}" target="_blank" rel="noopener">
+            <a class="attach-file-row" href="${attachHref(a)}" download="${escAttr(a.name)}" target="_blank" rel="noopener">
               <span class="attach-file-icon">📄</span>
               <div class="attach-file-meta">
                 <strong>${esc(a.name)}</strong>
@@ -3054,7 +3138,7 @@
       });
       refreshScores();
 
-      const save = (status) => {
+      const save = async (status) => {
         const { formData, total } = collectForm();
         if (status !== 'DRAFT') {
           const missing = criteria.filter((c) => !(formData[c.id]?.note || '').trim());
@@ -3064,8 +3148,16 @@
         }
         const now = new Date();
         const isLate = status !== 'DRAFT' && Scoring.isLate(now);
-        const attachments = [...(state.nnAttachments || [])];
         const editId = state.editingReportId;
+        const summaryNote = $('#nnSummary')?.value || '';
+        toast('Đang lưu báo cáo lên Google Sheets…');
+        let attachments = [];
+        try {
+          attachments = await uploadAttachmentsForSheets([...(state.nnAttachments || [])]);
+        } catch (err) {
+          toast(err.message || 'Không lưu được file đính kèm', 'err');
+          return;
+        }
         let reportId = editId;
         Store.update((d) => {
           const existing = editId ? d.reports.find((x) => x.id === editId && x.status === 'DRAFT') : null;
@@ -3073,7 +3165,7 @@
             Object.assign(existing, {
               status, formData, isLate, attachments,
               totalScore: total,
-              summaryNote: $('#nnSummary').value,
+              summaryNote,
               subject: subjectOf(cls),
               updatedAt: now.toISOString(),
               submittedAt: status !== 'DRAFT' ? now.toISOString() : null,
@@ -3095,7 +3187,7 @@
               formData,
               totalScore: total,
               isLate,
-              summaryNote: $('#nnSummary').value,
+              summaryNote,
               attachments,
               createdAt: now.toISOString(),
               submittedAt: status !== 'DRAFT' ? now.toISOString() : null,
@@ -3115,7 +3207,13 @@
               at: now.toISOString(),
             });
           }
-        });
+        }, { skipAutoSync: true });
+        try {
+          await syncReportToSheets(reportId);
+          Store.queueSheetsPush(['AuditLog', 'LateCounts']);
+        } catch (err) {
+          return;
+        }
         if (status !== 'DRAFT') {
           notify(cvhtNotifyIds(cls.cvhtId), `BC LT Ngoại ngữ — ${cls.code} · ${subjectOf(cls)}`, `${user.name} đã gửi BC tuần · ${total}/10.`);
           state.nnAttachments = [];
@@ -3231,9 +3329,8 @@
       };
       bindAttachments(() => state.cvhtAttachments || [], (l) => { state.cvhtAttachments = l; }, refreshCvhtAttach);
 
-      const save = (status) => {
+      const save = async (status) => {
         const linkedReportIds = $$('[data-link]:checked').map((el) => el.dataset.link);
-        const attachments = [...(state.cvhtAttachments || [])];
         const formData = {
           visitDone: visits.length > 0,
           classMood: $('#classMood').value,
@@ -3242,13 +3339,22 @@
         };
         const now = new Date().toISOString();
         const editId = editingCvht?.id || null;
+        const summaryNote = $('#summaryNote')?.value || '';
+        toast('Đang lưu báo cáo lên Google Sheets…');
+        let attachments = [];
+        try {
+          attachments = await uploadAttachmentsForSheets([...(state.cvhtAttachments || [])]);
+        } catch (err) {
+          toast(err.message || 'Không lưu được file đính kèm', 'err');
+          return;
+        }
         let reportId = editId;
         Store.update((d) => {
           const existing = editId ? d.reports.find((x) => x.id === editId && x.status === 'DRAFT') : null;
           if (existing) {
             Object.assign(existing, {
               status, formData, linkedReportIds, attachments,
-              summaryNote: $('#summaryNote').value,
+              summaryNote,
               subject: subjectOf(cls),
               updatedAt: now,
               submittedAt: status === 'SENT_TO_QLDT' ? now : null,
@@ -3271,7 +3377,7 @@
               totalScore: null,
               isLate: false,
               linkedReportIds,
-              summaryNote: $('#summaryNote').value,
+              summaryNote,
               attachments,
               createdAt: now,
               submittedAt: status === 'SENT_TO_QLDT' ? now : null,
@@ -3291,7 +3397,19 @@
               at: now,
             });
           }
-        });
+        }, { skipAutoSync: true });
+        try {
+          await syncReportToSheets(reportId);
+          if (status === 'SENT_TO_QLDT') {
+            for (const lid of linkedReportIds) {
+              const linked = (Store.get().reports || []).find((x) => x.id === lid);
+              if (linked) await Store.upsertRowToSheets('Reports', linked);
+            }
+          }
+          Store.queueSheetsPush(['AuditLog']);
+        } catch (err) {
+          return;
+        }
         if (status === 'SENT_TO_QLDT') {
           notify(['u_admin'], `BC tổng hợp CVHT — ${cls.code} · ${subjectOf(cls)}`, `${user.name} đã gửi báo cáo tổng hợp tuần.`);
           state.cvhtAttachments = [];
@@ -3602,7 +3720,7 @@
         refreshAttachOnly,
       );
 
-      const persist = (status) => {
+      const persist = async (status) => {
         const current = getCls();
         const sel = getSel();
         const ctx = reportContextFields(sel);
@@ -3622,8 +3740,21 @@
         const isLate = status !== 'DRAFT' && Scoring.isLate(now);
         const extra = collectExtra ? collectExtra() : {};
         const extraVal = state.reportDraft.extra || '';
-        const attachments = [...(state.reportDraft.attachments || [])];
         const editId = editing?.id || null;
+        const btnD = $('#btnDraft');
+        const btnS = $('#btnSubmit');
+        if (btnD) btnD.disabled = true;
+        if (btnS) btnS.disabled = true;
+        let attachments = [];
+        try {
+          toast('Đang lưu báo cáo lên Google Sheets…');
+          attachments = await uploadAttachmentsForSheets([...(state.reportDraft.attachments || [])]);
+        } catch (err) {
+          toast(err.message || 'Không lưu được file đính kèm', 'err');
+          if (btnD) btnD.disabled = false;
+          if (btnS) btnS.disabled = false;
+          return;
+        }
 
         let reportId = editId;
         Store.update((d) => {
@@ -3635,8 +3766,8 @@
             existing.formData = scored;
             existing.totalScore = totalScore;
             existing.isLate = isLate;
-            existing.activityNote = kind === 'BI_THU' ? extraVal : undefined;
-            existing.summaryNote = kind === 'LOP_TRUONG' ? extraVal : undefined;
+            existing.activityNote = kind === 'BI_THU' ? extraVal : (existing.activityNote || '');
+            existing.summaryNote = kind === 'LOP_TRUONG' ? extraVal : (existing.summaryNote || '');
             existing.linkedReportIds = extra.linkedReportIds || [];
             existing.attachments = attachments;
             existing.updatedAt = now.toISOString();
@@ -3658,8 +3789,8 @@
               formData: scored,
               totalScore,
               isLate,
-              activityNote: kind === 'BI_THU' ? extraVal : undefined,
-              summaryNote: kind === 'LOP_TRUONG' ? extraVal : undefined,
+              activityNote: kind === 'BI_THU' ? extraVal : '',
+              summaryNote: kind === 'LOP_TRUONG' ? extraVal : '',
               linkedReportIds: extra.linkedReportIds || [],
               attachments,
               createdAt: now.toISOString(),
@@ -3680,13 +3811,22 @@
               at: now.toISOString(),
             });
           }
-        });
+        }, { skipAutoSync: true });
+
+        try {
+          await syncReportToSheets(reportId);
+          Store.queueSheetsPush(['AuditLog', 'LateCounts']);
+        } catch (err) {
+          if (btnD) btnD.disabled = false;
+          if (btnS) btnS.disabled = false;
+          return;
+        }
 
         const report = (db().reports || []).find((x) => x.id === reportId);
         if (status !== 'DRAFT' && onSubmitNotify && report) onSubmitNotify(report, current);
         state.reportDraft = null;
         state.editingReportId = null;
-        toast(status === 'DRAFT' ? 'Đã lưu nháp' : `Đã gửi · ${totalScore}/100 · ${ctx.subjectName}${attachments.length ? ` · ${attachments.length} đính kèm` : ''}`);
+        toast(status === 'DRAFT' ? 'Đã lưu nháp trên Google Sheets' : `Đã gửi · ${totalScore}/100 · ${ctx.subjectName}${attachments.length ? ` · ${attachments.length} đính kèm` : ''}`);
         navigate(status === 'DRAFT' ? 'reports' : `reports/${reportId}`);
       };
 
@@ -3730,6 +3870,7 @@
           </tr>`).join('') : '<tr><td colspan="7"><div class="empty">Chưa có báo cáo chờ nhận</div></td></tr>'}
         </tbody>
       </table></div></div>`;
+    if (route === 'inbox') refreshRouteData('inbox', () => { if (route === 'inbox') pageInbox(); });
   }
 
   /* ========== REPORTS LIST / DETAIL ========== */
@@ -3936,6 +4077,7 @@
         pageReports();
       };
     }
+    refreshRouteData('reports', () => { if (route === 'reports' && !routeParams.id) pageReports(); });
   }
 
   function pageReportDetail(id) {
@@ -4204,7 +4346,8 @@
 
     const ack = $('#btnAck');
     if (ack) {
-      ack.onclick = () => {
+      ack.onclick = async () => {
+        ack.disabled = true;
         // Xác định status tiếp theo (null = chỉ cập nhật ghi chú, không đổi status)
         const nextStatus = { SENT_TO_CVHT: 'SEEN_BY_CVHT', SENT_TO_QLDT: 'SEEN_BY_QLDT' }[r.status] || null;
         const isFirstAck = !!nextStatus;
@@ -4288,7 +4431,15 @@
               : (isFirstAck ? 'ACK' : JSON.stringify({ reviewNote })),
             at: now,
           });
-        });
+        }, { skipAutoSync: true });
+
+        try {
+          await syncReportToSheets(id);
+          Store.queueSheetsPush(['AuditLog', 'Notifications']);
+        } catch (err) {
+          ack.disabled = false;
+          return;
+        }
 
         if (isFirstAck) {
           toast(hasAnyAdjustment ? `Đã xác nhận · Điểm điều chỉnh: ${computedAdjTotal}` : 'Đã xác nhận · Đã gửi thông báo về lớp');
@@ -5051,17 +5202,20 @@
       $$('[data-edit-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openEditUserModal(b.dataset.editUser); }; });
       $$('[data-assign-user]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openAssignPersonModal(b.dataset.assignUser); }; });
       $$('[data-del-user]').forEach((b) => {
-        b.onclick = (e) => {
+        b.onclick = async (e) => {
           e.stopPropagation();
           const u = findUser(b.dataset.delUser);
           if (!u) return;
           if (!confirm(`Xóa nhân sự "${u.name}"?\nSẽ gỡ khỏi mọi lớp.`)) return;
+          b.disabled = true;
           try {
-            Store.deleteUser(user, u.id, 'Xóa từ Nhân sự & vai trò');
-            toast(`Đã xóa ${u.name}`);
+            toast('Đang ghi Google Sheets…');
+            await Store.deleteUser(user, u.id, 'Xóa từ Nhân sự & vai trò');
             paintList();
           } catch (err) {
             toast(err.message || 'Không xóa được', 'err');
+            b.disabled = false;
+            paintList();
           }
         };
       });
@@ -5131,13 +5285,16 @@
     $('#btnAssign').onclick = () => openAssignPersonModal(u.id);
     const del = $('#btnDelPerson');
     if (del) {
-      del.onclick = () => {
+      del.onclick = async () => {
         if (!confirm(`Xóa nhân sự "${u.name}"?`)) return;
+        del.disabled = true;
         try {
-          Store.deleteUser(user, u.id, 'Xóa từ chi tiết nhân sự');
-          toast('Đã xóa'); navigate('people');
+          toast('Đang ghi Google Sheets…');
+          await Store.deleteUser(user, u.id, 'Xóa từ chi tiết nhân sự');
+          navigate('people');
         } catch (err) {
           toast(err.message || 'Không xóa được', 'err');
+          del.disabled = false;
         }
       };
     }
@@ -5954,7 +6111,7 @@
           <p style="margin-top:12px">Tabs: <code style="font-size:11.5px">${esc(tabs)}</code></p>
           <p style="margin-top:8px">Trạng thái: <span class="badge ${on ? 'badge-ok' : 'badge-warn'}">${on ? 'sheets' : 'local'}</span>
             ${on ? '' : ' — sửa config.js rồi reload để bật đồng bộ.'}
-            ${on ? `&nbsp; Cache: <span class="badge ${Store.isSheetsCacheFresh() ? 'badge-ok' : 'badge-muted'}">${Store.isSheetsCacheFresh() ? 'còn mới (10 phút)' : 'đã hết hạn'}</span>` : ''}</p>
+            ${on ? `&nbsp; Lần kéo gần nhất: <span class="badge ${Store.isSheetsCacheFresh() ? 'badge-ok' : 'badge-muted'}">${Store.isSheetsCacheFresh() ? 'vừa xong' : 'cần làm mới khi F5'}</span>` : ''}</p>
         </div>
       </div>
       <div class="panel" style="margin-bottom:14px">
@@ -6355,8 +6512,7 @@
     try {
       if (typeof SheetsAPI !== 'undefined' && SheetsAPI.enabled()) {
         try {
-          // Chỉ kéo Sheets nếu cache đã hết hạn (tránh làm chậm mỗi lần mở tab)
-          await Store.pullFromSheets();
+          await Store.pullFromSheets({ force: true });
         } catch (err) {
           console.warn('Sheets pull on boot failed', err);
         }

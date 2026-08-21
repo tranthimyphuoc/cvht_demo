@@ -4,7 +4,7 @@ const Store = {
 
   /* ── Sheets cache: tránh gọi API liên tục mỗi lần load trang ── */
   SHEETS_CACHE_TS_KEY: 'cvht_sheets_ts',
-  SHEETS_CACHE_TTL: 10 * 60 * 1000, // 10 phút
+  SHEETS_CACHE_TTL: 8 * 1000, // chỉ chống kéo 2 lần liên tiếp (login → app)
 
   isSheetsCacheFresh() {
     try {
@@ -273,6 +273,31 @@ const Store = {
     return merged;
   },
 
+  /** Remote thắng khi trùng id; giữ báo cáo local chưa kịp lên sheet */
+  mergeReports(local, remote) {
+    const byId = {};
+    (remote || []).forEach((r) => { if (r && r.id) byId[r.id] = r; });
+    (local || []).forEach((r) => {
+      if (!r || !r.id) return;
+      const rem = byId[r.id];
+      if (!rem) {
+        byId[r.id] = r;
+        return;
+      }
+      const remAtt = rem.attachments || [];
+      const locAtt = r.attachments || [];
+      byId[r.id] = {
+        ...rem,
+        summaryNote: rem.summaryNote || r.summaryNote || '',
+        activityNote: rem.activityNote || r.activityNote || '',
+        reviewNote: rem.reviewNote || r.reviewNote || '',
+        formData: (rem.formData && Object.keys(rem.formData).length) ? rem.formData : (r.formData || rem.formData),
+        attachments: remAtt.length ? remAtt : locAtt,
+      };
+    });
+    return Object.values(byId);
+  },
+
   /** Khôi phục user đã tạo (có trong nhật ký) nhưng bị mất do bug merge cũ */
   recoverUsersFromAudit(users, auditLog) {
     const ids = new Set(users.map((u) => u.id));
@@ -368,18 +393,42 @@ const Store = {
   },
 
   save(data) {
-    localStorage.setItem(this.KEY, JSON.stringify(data));
+    const payload = {
+      ...data,
+      reports: (data.reports || []).map((r) => ({
+        ...r,
+        attachments: (r.attachments || []).map((a) => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          size: a.size,
+          kind: a.kind,
+          url: a.url || a.viewUrl || '',
+          driveId: a.driveId || '',
+          downloadUrl: a.downloadUrl || '',
+        })),
+      })),
+    };
+    try {
+      localStorage.setItem(this.KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('Store.save failed', err);
+      if (typeof toast === 'function') {
+        toast('Không lưu được trên máy này (hết dung lượng). Kiểm tra Google Sheets sau khi gửi.', 'err');
+      }
+      throw err;
+    }
   },
 
   get() {
     return this.load();
   },
 
-  update(fn) {
+  update(fn, opts = {}) {
     const data = this.load();
     fn(data);
     this.save(data);
-    this.scheduleSheetsSync();
+    if (!opts.skipAutoSync) this.scheduleSheetsSync();
     return this.applyCurriculum(data);
   },
 
@@ -400,8 +449,9 @@ const Store = {
     if (this._sheetsSyncTimer) clearTimeout(this._sheetsSyncTimer);
     this._sheetsSyncTimer = setTimeout(() => {
       this._sheetsSyncTimer = null;
-      // Không auto-push Users: tạo/xóa dùng upsert từng dòng, tránh rewrite cả sheet.
-      const names = (SheetsAPI.SHEET_NAMES || []).filter((n) => n !== 'Users');
+      // Không auto-push Users/Reports: upsert từng dòng — dump cả sheet sẽ ghi đè báo cáo máy khác vừa gửi.
+      const skip = { Users: 1, Reports: 1 };
+      const names = (SheetsAPI.SHEET_NAMES || []).filter((n) => !skip[n]);
       this.queueSheetsPush(names);
     }, 1600);
   },
@@ -493,10 +543,35 @@ const Store = {
         afterJson: JSON.stringify({ active: false, reason: reason || 'Xóa nhân sự' }),
         at: new Date().toISOString(),
       });
+    }, { skipAutoSync: true });
+    if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
+      this.queueSheetsPush(['Classes', 'AuditLog']);
+      return Promise.resolve();
+    }
+    // Ghi active=FALSE ngay sau upsert tạo user (nếu còn trong hàng đợi),
+    // trước khi dump Classes/AuditLog — dump đó rất chậm và từng làm xóa không kịp lên sheet.
+    const done = new Promise((resolve, reject) => {
+      this.enqueueSheetsTask(async () => {
+        try {
+          await SheetsAPI.setUserActive(userId, false);
+          if (typeof toast === 'function') toast('Đã xóa trên hệ thống và Google Sheets');
+          resolve();
+        } catch (err) {
+          console.warn('setUserActive', err);
+          this.update((d) => {
+            const u = d.users.find((x) => x.id === userId);
+            if (u) u.active = true;
+          }, { skipAutoSync: true });
+          if (typeof toast === 'function') {
+            toast('Chưa xóa được trên Google Sheets: ' + (err.message || 'lỗi') + '. Copy Code.gs + Utils.gs, Deploy → New version, rồi xóa lại.', 'err');
+          }
+          reject(err);
+          throw err;
+        }
+      });
     });
-    const deleted = this.get().users.find((x) => x.id === userId);
-    this.upsertUserToSheets(deleted);
     this.queueSheetsPush(['Classes', 'AuditLog']);
+    return done;
   },
 
   /** Soft-delete lớp (active=false) + ẩn SV thuộc lớp */
@@ -1023,7 +1098,7 @@ const Store = {
         afterJson: JSON.stringify({ name: nu.name, email: nu.email, primaryRole: nu.primaryRole, campus: nu.campus }),
         at: new Date().toISOString(),
       });
-    });
+    }, { skipAutoSync: true });
     this.upsertUserToSheets(nu);
     this.queueSheetsPush(['AuditLog', 'RoleHistory']);
     return nu;
@@ -1125,7 +1200,7 @@ const Store = {
 
       result = { cls, ah };
     });
-    this.queueSheetsPush(['Classes', 'AssignmentHistory', 'RoleHistory', 'AuditLog', 'Users']);
+    this.queueSheetsPush(['Classes', 'AssignmentHistory', 'RoleHistory', 'AuditLog']);
     return result;
   },
 
@@ -1152,9 +1227,11 @@ const Store = {
 
   upsertUserToSheets(user) {
     if (!user || typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return;
+    const userId = user.id;
     this.enqueueSheetsTask(async () => {
       try {
-        await SheetsAPI.upsertEntity('Users', user);
+        const latest = this.get().users.find((u) => u.id === userId) || user;
+        await SheetsAPI.upsertEntity('Users', latest);
       } catch (err) {
         console.warn('Sheets upsert Users', err);
         if (typeof toast === 'function') {
@@ -1165,13 +1242,32 @@ const Store = {
     });
   },
 
+  upsertRowToSheets(sheet, row) {
+    if (!row || typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this.enqueueSheetsTask(async () => {
+        try {
+          await SheetsAPI.upsertEntity(sheet, row);
+          resolve();
+        } catch (err) {
+          console.warn('Sheets upsert', sheet, err);
+          if (typeof toast === 'function') {
+            toast('Không lưu được lên Google Sheets (' + sheet + '): ' + (err.message || 'lỗi'), 'err');
+          }
+          reject(err);
+          throw err;
+        }
+      });
+    });
+  },
+
   async pullFromSheets(opts = {}) {
     if (typeof SheetsAPI === 'undefined' || !SheetsAPI.enabled()) {
       throw new Error('Chưa bật mode sheets hoặc thiếu URL Web App trong js/config.js');
     }
-    // Bỏ qua nếu cache còn mới (dưới 10 phút) — trừ khi force=true
+    // Chỉ bỏ qua nếu vừa kéo xong (< 8 giây) — F5 / mở trang luôn lấy mới khi force hoặc cache hết.
     if (!opts.force && this.isSheetsCacheFresh()) {
-      console.info('[Store] Sheets cache còn mới, bỏ qua fetch.');
+      console.info('[Store] Sheets vừa kéo xong, bỏ qua fetch trùng.');
       return this.get();
     }
     const remote = await SheetsAPI.pullAll();
@@ -1186,7 +1282,9 @@ const Store = {
       if (remote.Students) {
         d.students = this.mergeStudentOverrides(d.students, SheetsAPI.mapRows('Students', remote.Students));
       }
-      if (remote.Reports) d.reports = SheetsAPI.mapRows('Reports', remote.Reports);
+      if (remote.Reports) {
+        d.reports = this.mergeReports(d.reports, SheetsAPI.mapRows('Reports', remote.Reports));
+      }
       if (remote.Visits) d.visits = SheetsAPI.mapRows('Visits', remote.Visits);
       if (remote.AtRiskNotes) d.atRiskNotes = SheetsAPI.mapRows('AtRiskNotes', remote.AtRiskNotes);
       if (remote.Escalations) d.escalations = SheetsAPI.mapRows('Escalations', remote.Escalations);
@@ -1216,7 +1314,7 @@ const Store = {
         });
         d.lateCounts = lc;
       }
-    });
+    }, { skipAutoSync: true });
     this.markSheetsCacheFresh();
     return this.get();
   },

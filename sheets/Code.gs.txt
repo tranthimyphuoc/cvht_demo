@@ -526,6 +526,9 @@ function _handleLegacyAction(body, e) {
     // - User đã có: GIỮ nguyên hash trên sheet (không cho frontend ghi đè).
     // - User mới / mật khẩu trống: HASH plaintext trước khi ghi (SHA-256 + salt).
     let rowsToWrite = body.rows || [];
+    if (body.sheet === 'Reports') {
+      rowsToWrite = rowsToWrite.map(slimReportRow_);
+    }
     if (body.sheet === 'Users') {
       try {
         const existingUsers = sheetToObjects_('Users');
@@ -553,6 +556,9 @@ function _handleLegacyAction(body, e) {
     const sh = ss.getSheetByName(body.sheet);
     if (!sh) return jsonResponse_({ error: 'Sheet not found' });
     var rowToAppend = body.row || {};
+    if (body.sheet === 'Reports') {
+      rowToAppend = slimReportRow_(rowToAppend);
+    }
     if (body.sheet === 'Users') {
       rowToAppend = Object.assign({}, rowToAppend, {
         password: _ensureHashedPassword_(rowToAppend.password),
@@ -566,6 +572,9 @@ function _handleLegacyAction(body, e) {
     const sh = ss.getSheetByName(body.sheet);
     if (!sh) return jsonResponse_({ error: 'Sheet not found: ' + body.sheet });
     var rowToUpsert = body.row || {};
+    if (body.sheet === 'Reports') {
+      rowToUpsert = slimReportRow_(rowToUpsert);
+    }
     if (body.sheet === 'Users') {
       var existingU = findOne_('Users', 'id', rowToUpsert.id);
       if (existingU && String(existingU.password || '').trim()) {
@@ -578,6 +587,24 @@ function _handleLegacyAction(body, e) {
     }
     upsertObject_(body.sheet, rowToUpsert);
     return jsonResponse_({ ok: true });
+  }
+
+  if (action === 'setUserActive') {
+    var uid = body.userId || (body.row && body.row.id) || '';
+    var wantActive = body.active;
+    if (wantActive === 'FALSE' || wantActive === 'false' || wantActive === false || wantActive === 0 || wantActive === '0') {
+      wantActive = false;
+    } else {
+      wantActive = !!wantActive;
+    }
+    var ok = setUserActive_(uid, wantActive);
+    if (!ok) return jsonResponse_({ error: 'Không tìm thấy user trên sheet: ' + uid });
+    return jsonResponse_({ ok: true, userId: uid, active: wantActive });
+  }
+
+  if (action === 'uploadFile') {
+    var uploaded = uploadAttachmentFile_(body.name, body.mimeType, body.data);
+    return jsonResponse_({ ok: true, fileId: uploaded.fileId, url: uploaded.url, downloadUrl: uploaded.downloadUrl, viewUrl: uploaded.viewUrl });
   }
 
   return jsonResponse_({ error: 'Unknown action: ' + action });

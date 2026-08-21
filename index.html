@@ -14,7 +14,7 @@
     <div class="boot-loader-card">
       <div class="boot-spinner" aria-hidden="true"></div>
       <strong id="bootMsg">Đang kiểm tra dữ liệu…</strong>
-      <span id="bootSub">Đồng bộ tài khoản từ Google Sheets (cache 10 phút)</span>
+      <span id="bootSub">Đồng bộ dữ liệu mới nhất từ Google Sheets</span>
     </div>
   </div>
   <div class="login-page">
@@ -68,11 +68,11 @@
     </section>
   </div>
 
-  <script src="js/config.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/data.js"></script>
-  <script src="js/sheets.js"></script>
-  <script src="js/store.js"></script>
+  <script src="js/config.js?v=4.4.0"></script>
+  <script src="js/api.js?v=4.4.0"></script>
+  <script src="js/data.js?v=4.4.0"></script>
+  <script src="js/sheets.js?v=4.4.0"></script>
+  <script src="js/store.js?v=4.4.0"></script>
   <script>
     ['cvht_hub_v1', 'cvht_hub_v2', 'cvht_hub_v3', 'cvht_hub_v4', 'cvht_hub_v5', 'cvht_hub_v6', 'cvht_hub_v7', 'cvht_hub_v8', 'cvht_hub_v9', 'cvht_hub_v10', 'cvht_hub_v11', 'cvht_hub_v12', 'cvht_hub_v13', 'cvht_hub_v14', 'cvht_hub_v15', 'cvht_hub_v16'].forEach((k) => localStorage.removeItem(k));
 
@@ -85,7 +85,7 @@
       try {
         submitBtn.disabled = true;
         submitBtn.textContent = Store.isSheetsCacheFresh() && !force ? 'Đang kiểm tra…' : 'Đang đồng bộ…';
-        await Store.pullFromSheets({ force });
+        await Store.pullFromSheets({ force: true });
       } catch (err) {
         console.warn('Login sheets pull failed', err);
       } finally {
@@ -104,12 +104,11 @@
 
     (async () => {
       try {
-        const fresh = Store.isSheetsCacheFresh();
         const msgEl = document.getElementById('bootMsg');
         const subEl = document.getElementById('bootSub');
-        if (msgEl) msgEl.textContent = fresh ? 'Đang khởi động…' : 'Đang đồng bộ dữ liệu…';
-        if (subEl) subEl.textContent = fresh ? 'Dữ liệu đã được cache, không cần tải lại' : 'Lần đầu hoặc cache hết hạn — kết nối Google Sheets';
-        await ensureSheetsUsers();
+        if (msgEl) msgEl.textContent = 'Đang đồng bộ dữ liệu…';
+        if (subEl) subEl.textContent = 'Lấy báo cáo và tài khoản mới nhất từ Google Sheets';
+        await ensureSheetsUsers(true);
         if (Store.getSession()) location.href = 'app.html';
       } finally {
         hideBoot();

@@ -119,7 +119,7 @@ const SHEET_HEADERS = {
   Users:             ['id','email','password','name','primaryRole','campus','initials','phone','active','aliasOf','classId','updatedAt'],
   Classes:           ['id','code','majorId','subject','subjectCode','campusId','programType','semester','level','note','studentCount','active','cvhtId','ltId','btId','gvName','tgName'],
   Students:          ['id','classId','name','studentCode','email','phone','gender','status','statusNote','riskReason','riskLevel','enrollStatus','active','statusUpdatedAt','statusUpdatedBy','updatedAt'],
-  Reports:           ['id','classId','reporterId','reportKind','reportType','weekStart','weekEnd','semesterId','subjectCode','subjectName','status','totalScore','isLate','formDataJson','attachmentsJson','summaryNote','activityNote','linkedReportIdsJson','createdAt','submittedAt','reviewedAt','reviewerId','reviewNote','demoTag'],
+  Reports:           ['id','classId','reporterId','reportKind','reportType','weekStart','weekEnd','semesterId','subjectCode','subjectName','status','totalScore','adjustedScore','adjustedScoresJson','adjustReason','isLate','formDataJson','attachmentsJson','summaryNote','activityNote','linkedReportIdsJson','createdAt','submittedAt','reviewedAt','reviewerId','reviewNote','demoTag'],
   Visits:            ['id','classId','cvhtId','visitDate','observation','createdAt','demoTag'],
   AtRiskNotes:       ['id','studentId','cvhtId','note','status','createdAt'],
   Escalations:       ['id','studentId','classId','cvhtId','reason','status','notesJson','resolveNote','resolvedAt','resolvedBy','resolvedByName','createdAt'],

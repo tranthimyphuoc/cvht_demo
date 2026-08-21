@@ -117,6 +117,52 @@ function sheetToObjects_(sheetName) {
  * @param {object[]} rows
  * @param {string[]} [headers] - Nếu không truyền, dùng SHEET_HEADERS
  */
+function slimAttachmentsJson_(raw) {
+  var list = [];
+  try {
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === 'string' && raw.trim()) list = JSON.parse(raw);
+    else if (raw && typeof raw === 'object') list = [raw];
+  } catch (e) {
+    return '[]';
+  }
+  if (!Array.isArray(list)) return '[]';
+  var out = list.map(function(a) {
+    a = a || {};
+    return {
+      id: a.id || '',
+      name: a.name || '',
+      type: a.type || '',
+      size: a.size || '',
+      kind: a.kind || '',
+      url: a.url || a.viewUrl || '',
+      driveId: a.driveId || '',
+      downloadUrl: a.downloadUrl || '',
+    };
+  });
+  return JSON.stringify(out);
+}
+
+function slimReportRow_(row) {
+  if (!row) return row;
+  var out = Object.assign({}, row);
+  if (out.attachmentsJson != null && out.attachmentsJson !== '') {
+    out.attachmentsJson = slimAttachmentsJson_(out.attachmentsJson);
+  } else if (out.attachments) {
+    out.attachmentsJson = slimAttachmentsJson_(out.attachments);
+  }
+  return out;
+}
+
+function sheetCell_(v) {
+  if (v == null) return '';
+  if (typeof v === 'string' && v.length > 49900) {
+    if (v.indexOf('data:') !== -1) return slimAttachmentsJson_(v);
+    return v.substring(0, 49900);
+  }
+  return v;
+}
+
 function writeObjects_(sheetName, rows, headers) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -125,7 +171,7 @@ function writeObjects_(sheetName, rows, headers) {
     sh.clearContents();
     const hdrs = headers || SHEET_HEADERS[sheetName] || (rows.length ? Object.keys(rows[0]) : []);
     if (!hdrs.length) return;
-    const data = [hdrs, ...rows.map(r => hdrs.map(h => r[h] == null ? '' : r[h]))];
+    const data = [hdrs, ...rows.map(r => hdrs.map(h => sheetCell_(r[h] == null ? '' : r[h])))];
     sh.getRange(1, 1, data.length, hdrs.length).setValues(data);
     sh.setFrozenRows(1);
   } finally {
@@ -144,17 +190,46 @@ function appendObject_(sheetName, row) {
   try {
     const sh = getOrCreateSheet_(sheetName);
     const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
-    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+    sh.appendRow(headers.map(h => sheetCell_(row[h] == null ? '' : row[h])));
   } finally {
     lock.releaseLock();
   }
 }
 
 /**
+ * Đảm bảo dòng header có đủ cột needed.
+ */
+function ensureSheetHeaders_(sh, needed) {
+  needed = needed || [];
+  var lastCol = sh.getLastColumn();
+  var lastRow = sh.getLastRow();
+  var existing = [];
+  if (lastRow >= 1 && lastCol >= 1) {
+    existing = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    while (existing.length && existing[existing.length - 1] === '') existing.pop();
+  }
+  if (!existing.length) {
+    if (needed.length) {
+      sh.getRange(1, 1, 1, needed.length).setValues([needed]);
+      sh.setFrozenRows(1);
+    }
+    return needed.slice();
+  }
+  var added = false;
+  needed.forEach(function(h) {
+    if (h && existing.indexOf(h) === -1) {
+      existing.push(h);
+      added = true;
+    }
+  });
+  if (added) {
+    sh.getRange(1, 1, 1, existing.length).setValues([existing]);
+  }
+  return existing;
+}
+
+/**
  * Upsert: tìm theo field, update nếu tồn tại, append nếu chưa có.
- * @param {string} sheetName
- * @param {object} row
- * @param {string} [keyField='id']
  */
 function upsertObject_(sheetName, row, keyField) {
   const lock = LockService.getScriptLock();
@@ -162,37 +237,70 @@ function upsertObject_(sheetName, row, keyField) {
   try {
     const key = keyField || 'id';
     const sh  = getOrCreateSheet_(sheetName);
-    const headers = SHEET_HEADERS[sheetName] || Object.keys(row);
+    const needed = SHEET_HEADERS[sheetName] || Object.keys(row);
+    const headers = ensureSheetHeaders_(sh, needed);
     const values  = sh.getDataRange().getValues();
 
     if (values.length < 1) {
-      sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+      sh.appendRow(headers.map(h => sheetCell_(row[h] == null ? '' : row[h])));
       return;
     }
     const hdrs = values[0].map(String);
     const keyIdx = hdrs.indexOf(key);
     if (keyIdx === -1) {
-      sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+      sh.appendRow(headers.map(h => sheetCell_(row[h] == null ? '' : row[h])));
       return;
     }
 
     for (var i = 1; i < values.length; i++) {
       if (String(values[i][keyIdx]) === String(row[key])) {
         var out = hdrs.map(function(h) {
-          return row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)];
+          var val = row[h] !== undefined ? row[h] : values[i][hdrs.indexOf(h)];
+          return sheetCell_(val);
         });
         sh.getRange(i + 1, 1, 1, hdrs.length).setValues([out]);
         return;
       }
     }
-    sh.appendRow(headers.map(h => row[h] == null ? '' : row[h]));
+    sh.appendRow(headers.map(h => sheetCell_(row[h] == null ? '' : row[h])));
   } finally {
     lock.releaseLock();
   }
 }
 
 /**
- * Tìm 1 row theo điều kiện.
+ * Đặt active cho 1 user theo id — chỉ sửa 1 ô, không rewrite cả sheet.
+ * @returns {boolean} true nếu tìm thấy và đã ghi
+ */
+function setUserActive_(userId, active) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = getSpreadsheet_().getSheetByName('Users');
+    if (!sh) return false;
+    const values = sh.getDataRange().getValues();
+    if (values.length < 2) return false;
+    const hdrs = values[0].map(String);
+    const idIdx = hdrs.indexOf('id');
+    const activeIdx = hdrs.indexOf('active');
+    if (idIdx < 0 || activeIdx < 0) return false;
+    const want = String(userId || '').trim();
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][idIdx]).trim() === want) {
+        sh.getRange(i + 1, activeIdx + 1).setValue(active ? 'TRUE' : 'FALSE');
+        var updIdx = hdrs.indexOf('updatedAt');
+        if (updIdx >= 0) sh.getRange(i + 1, updIdx + 1).setValue(new Date().toISOString());
+        return true;
+      }
+    }
+    return false;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Tìm 1 object theo field=value.
  * @param {string} sheetName
  * @param {string} field
  * @param {*} value
@@ -361,6 +469,51 @@ function sanitize_(str) {
  * Sanitize đệ quy một object.
  * @param {object|string} input
  */
+function getAttachmentsFolder_() {
+  var name = 'CVHT-Hub-Attachments';
+  try {
+    var ss = getSpreadsheet_();
+    var file = DriveApp.getFileById(ss.getId());
+    var parents = file.getParents();
+    var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+    var it = parent.getFoldersByName(name);
+    if (it.hasNext()) return it.next();
+    return parent.createFolder(name);
+  } catch (err) {
+    Logger.log('getAttachmentsFolder_ fallback: ' + err);
+    var rootIt = DriveApp.getRootFolder().getFoldersByName(name);
+    if (rootIt.hasNext()) return rootIt.next();
+    return DriveApp.getRootFolder().createFolder(name);
+  }
+}
+
+/**
+ * Lưu 1 file (base64) lên Google Drive — không nhét vào ô Sheet (giới hạn 50k ký tự).
+ */
+function uploadAttachmentFile_(name, mimeType, base64Data) {
+  if (!base64Data) throw new Error('Thiếu dữ liệu file');
+  var folder = getAttachmentsFolder_();
+  var decoded = Utilities.base64Decode(String(base64Data));
+  var blob = Utilities.newBlob(
+    decoded,
+    mimeType || 'application/octet-stream',
+    name || ('file-' + Date.now())
+  );
+  var file = folder.createFile(blob);
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (err) {
+    Logger.log('setSharing: ' + err);
+  }
+  var id = file.getId();
+  return {
+    fileId: id,
+    url: 'https://drive.google.com/file/d/' + id + '/view',
+    downloadUrl: 'https://drive.google.com/uc?export=download&id=' + id,
+    viewUrl: 'https://drive.google.com/uc?export=view&id=' + id,
+  };
+}
+
 function sanitizeInput_(input) {
   if (typeof input === 'string') return sanitize_(input);
   if (Array.isArray(input))     return input.map(sanitizeInput_);
