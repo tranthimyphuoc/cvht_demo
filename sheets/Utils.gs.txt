@@ -135,9 +135,9 @@ function slimAttachmentsJson_(raw) {
       type: a.type || '',
       size: a.size || '',
       kind: a.kind || '',
-      url: a.url || a.viewUrl || '',
+      url: (a.url && String(a.url).indexOf('data:') !== 0) ? a.url : (a.viewUrl || ''),
       driveId: a.driveId || '',
-      downloadUrl: a.downloadUrl || '',
+      downloadUrl: (a.downloadUrl && String(a.downloadUrl).indexOf('data:') !== 0) ? a.downloadUrl : '',
     };
   });
   return JSON.stringify(out);

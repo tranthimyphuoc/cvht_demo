@@ -174,7 +174,16 @@ const SheetsAPI = {
     if (sheet === 'Reports') {
       o.formData = this.jsonParse(o.formDataJson, {});
       o.attachments = this.jsonParse(o.attachmentsJson, []);
+      if (!Array.isArray(o.attachments) || !o.attachments.length) {
+        const fallback = this.jsonParse(o.attachments, []);
+        if (Array.isArray(fallback) && fallback.length) o.attachments = fallback;
+      }
       if (!Array.isArray(o.attachments)) o.attachments = [];
+      o.attachments = o.attachments.map((a) => ({
+        ...a,
+        url: a.url || a.viewUrl || a.downloadUrl || '',
+        driveId: a.driveId || '',
+      })).filter((a) => a.url || a.driveId || a.name);
       o.summaryNote = o.summaryNote == null ? '' : String(o.summaryNote);
       o.activityNote = o.activityNote == null ? '' : String(o.activityNote);
       o.reviewNote = o.reviewNote == null ? '' : String(o.reviewNote);

@@ -587,12 +587,17 @@
     return m ? m[1] : '';
   }
 
+  function safeHttpUrl(u) {
+    const s = String(u || '').trim();
+    if (!s || s.startsWith('data:')) return '';
+    return /^https?:\/\//i.test(s) ? s : '';
+  }
+
   function attachOpenHref(a) {
-    const url = String(a?.url || a?.viewUrl || a?.downloadUrl || a?.dataUrl || '').trim();
-    if (url && url.startsWith('data:')) return url;
-    const id = a?.driveId || driveFileId(url);
+    const raw = String(a?.url || a?.viewUrl || a?.downloadUrl || '').trim();
+    const id = a?.driveId || driveFileId(raw);
     if (id) return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
-    return url;
+    return safeHttpUrl(raw);
   }
 
   function guessAttachName(url, fallback) {
@@ -631,6 +636,47 @@
         driveId: a.driveId || driveFileId(url) || '',
       };
     }).filter((a) => a.url);
+  }
+
+  function attachmentsOf(r) {
+    if (!r) return [];
+    let list = r.attachments;
+    if (typeof list === 'string') {
+      try { list = JSON.parse(list); } catch { list = []; }
+    }
+    if (!Array.isArray(list) || !list.length) {
+      let raw = r.attachmentsJson;
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw); } catch { raw = []; }
+      }
+      if (Array.isArray(raw)) list = raw;
+    }
+    return normalizeAttachLinks(list || []);
+  }
+
+  function attachmentsFromLinked(r) {
+    const extra = [];
+    (r.linkedReportIds || []).forEach((id) => {
+      const src = (db().reports || []).find((x) => x.id === id);
+      if (!src) return;
+      const label = REPORT_KIND_LABELS[src.reportKind] || src.reportKind;
+      attachmentsOf(src).forEach((a) => {
+        extra.push({ ...a, id: a.id + '_' + src.id, name: `${label} · ${a.name}` });
+      });
+    });
+    return extra;
+  }
+
+  function attachmentsForReportView(r) {
+    const seen = new Set();
+    const all = [];
+    [...attachmentsOf(r), ...attachmentsFromLinked(r)].forEach((a) => {
+      const key = a.url || a.id;
+      if (seen.has(key)) return;
+      seen.add(key);
+      all.push(a);
+    });
+    return all;
   }
 
   function parsePastedLinks(text) {
@@ -3267,6 +3313,7 @@
             <textarea id="recommendation" rows="3" placeholder="Đề xuất can thiệp, khen thưởng, hỗ trợ…">${esc(f.recommendation || '')}</textarea></div>
           <div class="field"><label>Ghi chú tổng hợp</label>
             <textarea id="summaryNote" rows="2">${esc(editingCvht?.summaryNote || '')}</textarea></div>
+          <p style="font-size:12.5px;color:var(--muted);margin:0 0 8px">Link minh chứng của BC Bí thư / Lớp trưởng đã chọn ở trên sẽ được gửi kèm cho QLĐT. Có thể dán thêm link của CVHT bên dưới.</p>
           ${attachPanelHtml(state.cvhtAttachments || [])}
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
             ${editingCvht ? '<button type="button" class="btn btn-ghost" id="btnCancelCvht">Hủy</button>' : ''}
@@ -3302,7 +3349,29 @@
         const editId = editingCvht?.id || null;
         const summaryNote = $('#summaryNote')?.value || '';
         toast('Đang lưu báo cáo lên Google Sheets…');
-        const attachments = normalizeAttachLinks(state.cvhtAttachments || []);
+        const ownLinks = normalizeAttachLinks(state.cvhtAttachments || []);
+        const linkedLinks = [];
+        linkedReportIds.forEach((id) => {
+          const src = (Store.get().reports || []).find((x) => x.id === id);
+          if (!src) return;
+          const label = REPORT_KIND_LABELS[src.reportKind] || src.reportKind;
+          attachmentsOf(src).forEach((a) => {
+            linkedLinks.push({
+              ...a,
+              id: Store.uid('att'),
+              name: `${label} · ${a.name}`,
+            });
+          });
+        });
+        const seenUrl = new Set();
+        const attachments = [...ownLinks, ...linkedLinks].filter((a) => {
+          if (!a.url || seenUrl.has(a.url)) return false;
+          seenUrl.add(a.url);
+          return true;
+        });
+        if ((state.cvhtAttachments || []).length && !ownLinks.length) {
+          toast('File upload cũ không gửi được. Dán lại link Google Drive (chia sẻ: bất kỳ ai có liên kết).', 'err');
+        }
         let reportId = editId;
         Store.update((d) => {
           const existing = editId ? d.reports.find((x) => x.id === editId && x.status === 'DRAFT') : null;
@@ -4147,6 +4216,25 @@
           <p style="margin-top:10px"><strong>Đề xuất QLĐT:</strong> ${esc(f.recommendation || '—')}</p>
           ${r.summaryNote ? `<p style="margin-top:10px;color:var(--muted)">${esc(r.summaryNote)}</p>` : ''}
         </div></div>`;
+      const linked = (r.linkedReportIds || [])
+        .map((id) => (db().reports || []).find((x) => x.id === id))
+        .filter(Boolean);
+      if (linked.length) {
+        body += `<div class="panel"><div class="panel-head"><h2>BC Bí thư / Lớp trưởng tham chiếu</h2></div>
+          <div class="panel-body">${linked.map((src) => {
+            const links = attachmentsOf(src);
+            return `<div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
+              <strong>${esc(REPORT_KIND_LABELS[src.reportKind] || src.reportKind)}</strong>
+              · ${esc(userName(src.reporterId))} · ${statusBadge(src)}
+              ${src.summaryNote || src.activityNote ? `<p style="margin:6px 0 0;color:var(--muted)">${esc(src.summaryNote || src.activityNote)}</p>` : ''}
+              ${links.length ? `<div class="attach-files" style="margin-top:8px">${links.map((a) => `
+                <a class="attach-file-row" href="${escAttr(attachOpenHref(a))}" target="_blank" rel="noopener">
+                  <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
+                  <div class="attach-file-meta"><strong>${esc(a.name)}</strong><span>Bấm để mở minh chứng</span></div>
+                </a>`).join('')}</div>` : '<div class="attach-empty" style="margin-top:6px">BC này không có link minh chứng</div>'}
+            </div>`;
+          }).join('')}</div></div>`;
+      }
     } else if (r.reportKind === 'LOP_TRUONG_NN') {
       const f = r.formData || {};
       const isNew = SEED.criteriaNN.some((c) => f[c.id] && (f[c.id].point != null || f[c.id].note != null));
@@ -4273,7 +4361,7 @@
       </div>
       ${semesterPanel}
       ${body}
-      ${attachViewHtml(r.attachments || [])}
+      ${attachViewHtml(attachmentsForReportView(r))}
       ${actions}
       <button class="btn btn-ghost" style="margin-top:8px" onclick="App.go('reports')">← Quay lại</button>`;
 

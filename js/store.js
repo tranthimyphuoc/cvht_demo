@@ -292,7 +292,9 @@ const Store = {
         activityNote: rem.activityNote || r.activityNote || '',
         reviewNote: rem.reviewNote || r.reviewNote || '',
         formData: (rem.formData && Object.keys(rem.formData).length) ? rem.formData : (r.formData || rem.formData),
-        attachments: remAtt.length ? remAtt : locAtt,
+        attachments: ((remAtt.filter((a) => /^https?:/i.test(a.url || '')).length >= locAtt.filter((a) => /^https?:/i.test(a.url || '')).length) && remAtt.length)
+          ? remAtt
+          : (locAtt.length ? locAtt : remAtt),
       };
     });
     return Object.values(byId);
@@ -403,9 +405,9 @@ const Store = {
           type: a.type,
           size: a.size,
           kind: a.kind,
-          url: a.url || a.viewUrl || '',
+          url: (a.url && !String(a.url).startsWith('data:')) ? a.url : (a.viewUrl || ''),
           driveId: a.driveId || '',
-          downloadUrl: a.downloadUrl || '',
+          downloadUrl: a.downloadUrl && !String(a.downloadUrl).startsWith('data:') ? a.downloadUrl : '',
         })),
       })),
     };
