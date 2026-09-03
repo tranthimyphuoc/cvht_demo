@@ -788,7 +788,8 @@
         <div class="panel-body"><div class="attach-empty">Không có link minh chứng</div></div></div>`;
     }
     return `
-      <div class="panel attach-view-panel"><div class="panel-head"><h2>Đính kèm minh chứng (${items.length})</h2></div>
+      <div class="panel attach-view-panel"><div class="panel-head"><h2>Đính kèm minh chứng</h2>
+          <span style="font-size:12px;color:var(--muted)">${items.length} link</span></div>
         <div class="panel-body">
           <div class="attach-files">${items.map((a) => attachRowHtml(a)).join('')}</div>
           <div class="attach-hint" style="margin-top:10px">Bấm <strong>Mở</strong> để xem trên Drive, hoặc <strong>Copy</strong> để lấy link. Nếu báo "cần quyền truy cập", yêu cầu người gửi đổi chia sẻ thành <em>Bất kỳ ai có liên kết</em>.</div>
@@ -4142,6 +4143,21 @@
     refreshRouteData('reports', () => { if (route === 'reports' && !routeParams.id) pageReports(); });
   }
 
+  /* ---------- Chi tiết báo cáo: khối nội dung dùng chung mọi vai trò ---------- */
+  function rdSection(title, text, opts = {}) {
+    const val = String(text ?? '').trim();
+    return `<div class="panel">
+      <div class="panel-head"><h2>${esc(title)}</h2>${opts.aside || ''}</div>
+      <div class="panel-body">
+        <div class="rd-prose${opts.muted ? ' muted' : ''}${val ? '' : ' empty'}">${val ? esc(val) : 'Chưa có nội dung'}</div>
+      </div>
+    </div>`;
+  }
+
+  function rdFact(label, value, cls = '') {
+    return `<div class="rd-fact"><span class="lbl">${esc(label)}</span><span class="val ${cls}">${esc(String(value))}</span></div>`;
+  }
+
   function pageReportDetail(id) {
     const r = (db().reports || []).find((x) => x.id === id);
     if (!r) { toast('Không tìm thấy', 'err'); return navigate('reports'); }
@@ -4252,29 +4268,37 @@
     let body = '';
     if (r.reportKind === 'CVHT_TONG_HOP') {
       const f = r.formData || {};
-      body = `
-        <div class="kpi-grid">
-          <div class="kpi"><div class="label">Tình hình lớp</div><div class="value" style="font-size:1rem">${esc(f.classMood || '—')}</div></div>
-          <div class="kpi"><div class="label">Đã vào lớp</div><div class="value" style="font-size:1rem">${f.visitDone ? 'Có' : 'Chưa'}</div></div>
-        </div>
-        <div class="panel"><div class="panel-body">
-          <p><strong>SV nguy cơ:</strong> ${esc(f.riskSummary || '—')}</p>
-          <p style="margin-top:10px"><strong>Đề xuất QLĐT:</strong> ${esc(f.recommendation || '—')}</p>
-          ${r.summaryNote ? `<p style="margin-top:10px;color:var(--muted)">${esc(r.summaryNote)}</p>` : ''}
-        </div></div>`;
       const linked = (r.linkedReportIds || [])
         .map((id) => (db().reports || []).find((x) => x.id === id))
         .filter(Boolean);
+      body = `
+        <div class="rd-facts">
+          ${rdFact('Đã vào lớp', f.visitDone ? 'Có' : 'Chưa', f.visitDone ? 'ok' : 'soft')}
+          ${rdFact('BC tham chiếu', linked.length)}
+          ${rdFact('Link minh chứng', attachmentsForReportView(r).length)}
+        </div>
+        <div class="rd-grid cols-2">
+          ${rdSection('Tình hình lớp', f.classMood)}
+          ${rdSection('Sinh viên nguy cơ', f.riskSummary)}
+          ${rdSection('Nhận xét & đề xuất gửi QLĐT', f.recommendation)}
+          ${r.summaryNote ? rdSection('Ghi chú tổng hợp', r.summaryNote, { muted: true }) : ''}
+          ${role() === 'CVHT' && r.reviewNote ? rdSection('Phản hồi từ QLĐT', r.reviewNote, { muted: true }) : ''}
+        </div>`;
       if (linked.length) {
-        body += `<div class="panel"><div class="panel-head"><h2>BC Bí thư / Lớp trưởng tham chiếu</h2></div>
-          <div class="panel-body">${linked.map((src) => {
+        body += `<div class="panel"><div class="panel-head"><h2>BC Bí thư / Lớp trưởng tham chiếu</h2>
+            <span style="font-size:12px;color:var(--muted)">${linked.length} báo cáo</span></div>
+          <div class="panel-body"><div class="rd-linked">${linked.map((src) => {
             const links = attachmentsOf(src);
-            return `<div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
-              <strong>${esc(REPORT_KIND_LABELS[src.reportKind] || src.reportKind)}</strong>
-              · ${esc(userName(src.reporterId))} · ${statusBadge(src)}
-              ${src.summaryNote || src.activityNote ? `<p style="margin:6px 0 0;color:var(--muted)">${esc(src.summaryNote || src.activityNote)}</p>` : ''}
-              ${links.length ? `<div class="attach-files" style="margin-top:8px">${links.map((a) => attachRowHtml(a)).join('')}</div>`
-                : '<div class="attach-empty" style="margin-top:6px">BC này không có link minh chứng</div>'}
+            const note = src.summaryNote || src.activityNote || '';
+            return `<div class="rd-linked-item">
+              <div class="rd-linked-head">
+                <strong>${esc(REPORT_KIND_LABELS[src.reportKind] || src.reportKind)}</strong>
+                ${statusBadge(src)}
+                <span class="who">${esc(userName(src.reporterId))}${src.totalScore != null ? ` · ${src.totalScore}/100` : ''}</span>
+              </div>
+              ${note ? `<div class="rd-prose muted">${esc(note)}</div>` : ''}
+              ${links.length ? `<div class="attach-files">${links.map((a) => attachRowHtml(a)).join('')}</div>`
+                : '<div class="attach-empty" style="margin-top:8px">BC này không có link minh chứng</div>'}
             </div>`;
           }).join('')}</div></div>`;
       }
@@ -4314,10 +4338,9 @@
             </header>
           </article>`;
         }).join('')}</div>`;
-        if (r.summaryNote) {
-          body += `<div class="panel"><div class="panel-body"><strong>Ghi chú thêm:</strong>
-            <p style="margin-top:6px;color:var(--muted)">${esc(r.summaryNote)}</p></div></div>`;
-        }
+        body = `<div class="rd-block-title">Chấm điểm theo tiêu chí (${SEED.criteriaNN.length})</div>` + body;
+        if (r.summaryNote) body += rdSection('Ghi chú thêm gửi CVHT', r.summaryNote, { muted: true });
+        if (role() === 'QLDT' && r.reviewNote) body += rdSection('Ghi chú xem xét của CVHT', r.reviewNote, { muted: true });
       } else {
         /* Báo cáo cũ (sĩ số / BTVN) — vẫn hiển thị được */
         body = `
@@ -4327,11 +4350,11 @@
             <div class="kpi"><div class="label">BTVN đúng hạn</div><div class="value">${f.homeworkOk ?? '—'}</div></div>
             <div class="kpi danger"><div class="label">SV nguy cơ</div><div class="value">${f.riskCount ?? 0}</div></div>
           </div>
-          <div class="panel"><div class="panel-body">
-            <p><strong>Ghi chú nguy cơ:</strong> ${esc(f.riskNote || '—')}</p>
-            <p style="margin-top:10px"><strong>Vấn đề / đề xuất:</strong> ${esc(f.issues || '—')}</p>
-            <p style="margin-top:10px;color:var(--muted)">${esc(r.summaryNote || '')}</p>
-          </div></div>`;
+          <div class="rd-grid cols-2">
+            ${rdSection('Ghi chú nguy cơ', f.riskNote)}
+            ${rdSection('Vấn đề / đề xuất', f.issues)}
+            ${r.summaryNote ? rdSection('Ghi chú thêm', r.summaryNote, { muted: true }) : ''}
+          </div>`;
       }
     } else {
       const criteria = r.reportKind === 'BI_THU' ? SEED.criteriaBT : SEED.criteriaLT;
@@ -4363,9 +4386,13 @@
           ${scoreHtml}
         </div></div>`;
       }).join('');
-      if (r.activityNote || r.summaryNote) {
-        body += `<div class="panel"><div class="panel-body"><strong>Ghi chú:</strong>
-          <p style="margin-top:6px;color:var(--muted)">${esc(r.activityNote || r.summaryNote)}</p></div></div>`;
+      body = `<div class="rd-block-title">Chấm điểm theo tiêu chí (${criteria.length})</div>` + body;
+      const ownNote = r.activityNote || r.summaryNote;
+      if (ownNote) {
+        body += rdSection(r.reportKind === 'BI_THU' ? 'Hoạt động / phong trào nổi bật' : 'Ghi chú của người gửi', ownNote, { muted: true });
+      }
+      if (role() === 'QLDT' && r.reviewNote) {
+        body += rdSection('Ghi chú xem xét của CVHT', r.reviewNote, { muted: true });
       }
     }
 
@@ -4394,11 +4421,22 @@
     const maxScore = r.reportKind === 'LOP_TRUONG_NN' ? 10 : 100;
     $('#content').innerHTML = `
       ${flowBanner()}
-      <div class="cta-hero" style="padding:18px 24px">
-        <div>
+      <div class="cta-hero rd-hero" style="padding:20px 24px">
+        <div class="rd-hero-main">
           <h2>${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</h2>
-          <p>${esc(cls?.code || '')} · <strong>${esc(ctx.subjectName)}</strong>${ctx.subjectCode ? ` (${esc(ctx.subjectCode)})` : ''} · ${esc(Curriculum.semesterLabel(ctx.semesterId))} · ${userName(r.reporterId)} · ${Scoring.fmtDateTime(r.createdAt)} · ${statusBadge(r)}</p>
-          ${r.adjustedScore != null ? `<p style="margin-top:6px;font-size:.8rem"><span class="badge badge-warn">Điểm CVHT điều chỉnh: ${r.adjustedScore}/${maxScore}</span> (Tự chấm: ${r.totalScore ?? '—'}) ${r.adjustReason ? `· ${esc(r.adjustReason)}` : ''}</p>` : ''}
+          <p class="rd-hero-sub">${esc(cls?.code || '')} · <strong>${esc(ctx.subjectName)}</strong>${ctx.subjectCode ? ` (${esc(ctx.subjectCode)})` : ''}</p>
+          <div class="rd-hero-meta">
+            ${statusBadge(r)}
+            <span>${esc(Curriculum.semesterLabel(ctx.semesterId))}</span>
+            <span>Người gửi: ${userName(r.reporterId)}</span>
+            <span>${Scoring.fmtDateTime(r.submittedAt || r.createdAt)}</span>
+            ${r.isLate ? '<span class="badge badge-warn">Nộp trễ</span>' : ''}
+          </div>
+          ${r.adjustedScore != null ? `<div class="rd-hero-adj">
+            <span class="badge badge-warn">CVHT điều chỉnh: ${r.adjustedScore}/${maxScore}</span>
+            <span>Tự chấm: ${r.totalScore ?? '—'}/${maxScore}</span>
+            ${r.adjustReason ? `<span>· ${esc(r.adjustReason)}</span>` : ''}
+          </div>` : ''}
         </div>
         ${displayScore != null ? `<div class="score-ring" style="--p:${r.reportKind === 'LOP_TRUONG_NN' ? (Number(displayScore) / 10) * 100 : displayScore}%"><span>${displayScore}${r.reportKind === 'LOP_TRUONG_NN' ? '<small style="font-size:.45em">/10</small>' : ''}</span></div>` : ''}
       </div>
