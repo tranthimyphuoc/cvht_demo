@@ -593,11 +593,31 @@
     return /^https?:\/\//i.test(s) ? s : '';
   }
 
+  /** docs.google.com (Docs/Sheets/Slides/Forms) phải giữ nguyên link gốc —
+   *  đổi sang drive.google.com/file/d/... sẽ mở ra trang lỗi. */
+  function isGoogleDocsUrl(u) {
+    return /^https?:\/\/docs\.google\.com\//i.test(String(u || ''));
+  }
+
   function attachOpenHref(a) {
     const raw = String(a?.url || a?.viewUrl || a?.downloadUrl || '').trim();
+    const safe = safeHttpUrl(raw);
+    if (safe && isGoogleDocsUrl(safe)) return safe;
+    if (safe) return safe;
     const id = a?.driveId || driveFileId(raw);
     if (id) return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
-    return safeHttpUrl(raw);
+    return '';
+  }
+
+  /** Ảnh xem trước. Drive dùng endpoint thumbnail — link Drive không có đuôi file nên
+   *  cứ thử với mọi file Drive; không phải ảnh (hoặc chưa chia sẻ) thì onerror sẽ đổi lại icon. */
+  function attachThumbHref(a) {
+    if (!a) return '';
+    const href = attachOpenHref(a);
+    if (!href) return '';
+    const id = a.driveId || driveFileId(href);
+    if (id) return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w600';
+    return a.kind === 'image' ? href : '';
   }
 
   function guessAttachName(url, fallback) {
@@ -611,10 +631,12 @@
   }
 
   function guessAttachKind(url, name) {
-    const s = `${url || ''} ${name || ''}`;
-    if (/\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(s)) return 'image';
-    if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|txt)(\?|$)/i.test(s)) return 'file';
-    if (driveFileId(url)) return 'drive';
+    // Bỏ query/hash trước khi dò đuôi file — nếu ghép chung url + name thì regex
+    // neo cuối chuỗi ($) không bao giờ khớp và mọi ảnh đều bị nhận nhầm là 'link'.
+    const parts = [String(url || '').split(/[?#]/)[0], String(name || '')];
+    if (parts.some((s) => /\.(png|jpe?g|gif|webp|bmp|heic|svg)$/i.test(s))) return 'image';
+    if (parts.some((s) => /\.(pdf|docx?|xlsx?|pptx?|zip|rar|txt|csv)$/i.test(s))) return 'file';
+    if (/^https?:\/\/(drive|docs)\.google\.com\//i.test(url || '') || driveFileId(url)) return 'drive';
     return 'link';
   }
 
@@ -625,17 +647,18 @@
     return '🔗';
   }
 
-  function normalizeAttachLinks(list) {
+  function normalizeAttachLinks(list, opts = {}) {
     return (Array.isArray(list) ? list : []).map((a) => {
       const url = attachOpenHref(a);
       return {
         id: a.id || Store.uid('att'),
         name: (a.name || guessAttachName(url, '')).trim() || guessAttachName(url),
-        kind: a.kind || guessAttachKind(url, a.name),
+        kind: guessAttachKind(url, a.name) === 'image' ? 'image' : (a.kind || guessAttachKind(url, a.name)),
         url,
         driveId: a.driveId || driveFileId(url) || '',
       };
-    }).filter((a) => a.url);
+    // Khi xem lại (keepBroken) vẫn giữ mục hỏng để CVHT/QLĐT biết là có minh chứng nhưng thiếu link.
+    }).filter((a) => a.url || (opts.keepBroken && a.name));
   }
 
   function attachmentsOf(r) {
@@ -651,7 +674,7 @@
       }
       if (Array.isArray(raw)) list = raw;
     }
-    return normalizeAttachLinks(list || []);
+    return normalizeAttachLinks(list || [], { keepBroken: true });
   }
 
   function attachmentsFromLinked(r) {
@@ -729,20 +752,33 @@
           <button type="button" class="btn btn-primary btn-sm" id="btnAddAttachLink">+ Thêm link</button>
         </div>
         <div class="attach-files" id="attachFilesList">
-          ${items.map((a) => {
-            const href = attachOpenHref(a);
-            return `<div class="attach-file-row" data-aid="${a.id}">
-              <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
-              <div class="attach-file-meta">
-                <strong>${esc(a.name || 'Link minh chứng')}</strong>
-                <span>${esc(href)}</span>
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" data-remove="${a.id}">Xóa</button>
-            </div>`;
-          }).join('')}
+          ${items.map((a) => attachRowHtml(a, { editable: true })).join('')}
         </div>
         ${!items.length ? '<div class="attach-empty" id="attachEmpty">Chưa có link minh chứng</div>' : ''}
       </div>`;
+  }
+
+  /** 1 dòng minh chứng — dùng chung cho form nhập (editable) và màn xem lại. */
+  function attachRowHtml(a, opts = {}) {
+    const href = attachOpenHref(a);
+    const canOpen = !!href && isHttpUrl(href);
+    const thumb = attachThumbHref(a);
+    return `<div class="attach-file-row" data-aid="${escAttr(a.id || '')}">
+      ${thumb ? `<img class="attach-file-thumb" src="${escAttr(thumb)}" alt="${escAttr(a.name || '')}" loading="lazy"
+             onerror="this.hidden=true;this.nextElementSibling.hidden=false" />` : ''}
+      <span class="attach-file-icon"${thumb ? ' hidden' : ''}>${attachKindIcon(a.kind)}</span>
+      <div class="attach-file-meta">
+        <strong>${esc(a.name || 'Link minh chứng')}</strong>
+        ${canOpen
+          ? `<a class="attach-file-url" href="${escAttr(href)}" target="_blank" rel="noopener" title="${escAttr(href)}">${esc(href)}</a>`
+          : '<span class="attach-file-missing">Thiếu link — người gửi cần dán lại</span>'}
+      </div>
+      <div class="attach-file-actions">
+        ${canOpen ? `<a class="btn btn-ghost btn-sm" href="${escAttr(href)}" target="_blank" rel="noopener">Mở</a>` : ''}
+        ${canOpen ? `<button type="button" class="btn btn-ghost btn-sm" data-copy="${escAttr(href)}">Copy</button>` : ''}
+        ${opts.editable ? `<button type="button" class="btn btn-ghost btn-sm" data-remove="${escAttr(a.id || '')}">Xóa</button>` : ''}
+      </div>
+    </div>`;
   }
 
   function attachViewHtml(list = []) {
@@ -752,22 +788,32 @@
         <div class="panel-body"><div class="attach-empty">Không có link minh chứng</div></div></div>`;
     }
     return `
-      <div class="panel"><div class="panel-head"><h2>Đính kèm minh chứng (${items.length})</h2></div>
+      <div class="panel attach-view-panel"><div class="panel-head"><h2>Đính kèm minh chứng (${items.length})</h2></div>
         <div class="panel-body">
-          <div class="attach-files">${items.map((a) => {
-            const href = attachOpenHref(a);
-            const canOpen = !!href && (href.startsWith('data:') || isHttpUrl(href) || href.startsWith('https://drive.google.com'));
-            return `<${canOpen ? `a href="${escAttr(href)}" target="_blank" rel="noopener"` : 'div'} class="attach-file-row">
-              <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
-              <div class="attach-file-meta">
-                <strong>${esc(a.name || 'Link minh chứng')}</strong>
-                <span>${canOpen ? 'Bấm để mở trên Drive / trình duyệt' : 'Thiếu link — người gửi cần dán lại'}</span>
-              </div>
-            </${canOpen ? 'a' : 'div'}>`;
-          }).join('')}</div>
+          <div class="attach-files">${items.map((a) => attachRowHtml(a)).join('')}</div>
+          <div class="attach-hint" style="margin-top:10px">Bấm <strong>Mở</strong> để xem trên Drive, hoặc <strong>Copy</strong> để lấy link. Nếu báo "cần quyền truy cập", yêu cầu người gửi đổi chia sẻ thành <em>Bất kỳ ai có liên kết</em>.</div>
         </div>
       </div>`;
   }
+
+  /** Nút Copy link — gắn 1 lần cho toàn trang, dùng cho mọi panel minh chứng. */
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    const text = btn.dataset.copy || '';
+    const done = () => toast('Đã copy link minh chứng');
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => toast(text, 'err'));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch { toast(text, 'err'); }
+      ta.remove();
+    }
+  });
 
   function bindAttachments(getList, setList, onChange) {
     const addFromInputs = () => {
@@ -4227,11 +4273,8 @@
               <strong>${esc(REPORT_KIND_LABELS[src.reportKind] || src.reportKind)}</strong>
               · ${esc(userName(src.reporterId))} · ${statusBadge(src)}
               ${src.summaryNote || src.activityNote ? `<p style="margin:6px 0 0;color:var(--muted)">${esc(src.summaryNote || src.activityNote)}</p>` : ''}
-              ${links.length ? `<div class="attach-files" style="margin-top:8px">${links.map((a) => `
-                <a class="attach-file-row" href="${escAttr(attachOpenHref(a))}" target="_blank" rel="noopener">
-                  <span class="attach-file-icon">${attachKindIcon(a.kind)}</span>
-                  <div class="attach-file-meta"><strong>${esc(a.name)}</strong><span>Bấm để mở minh chứng</span></div>
-                </a>`).join('')}</div>` : '<div class="attach-empty" style="margin-top:6px">BC này không có link minh chứng</div>'}
+              ${links.length ? `<div class="attach-files" style="margin-top:8px">${links.map((a) => attachRowHtml(a)).join('')}</div>`
+                : '<div class="attach-empty" style="margin-top:6px">BC này không có link minh chứng</div>'}
             </div>`;
           }).join('')}</div></div>`;
       }
