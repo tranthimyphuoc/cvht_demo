@@ -17,5 +17,5 @@ const APP_CONFIG = {
   mode: 'sheets', // đổi thành 'sheets' khi đã có Web App URL
   sheetsWebAppUrl: 'https://script.google.com/macros/s/AKfycbwnyRpu5ICM-p07exX6F_NZjgADZngRT32VIyAnyzZV60eAtbWX_InhaWh2F7fMoQwv/exec', // ví dụ: 'https://script.google.com/macros/s/XXXX/exec'
   sheetsApiKey: '', // optional — bật check trong Code.gs nếu cần
-  version: '4.4.3',
+  version: '4.4.4',
 };

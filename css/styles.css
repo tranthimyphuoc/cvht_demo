@@ -2096,3 +2096,17 @@ tr:hover td { background: rgba(200,16,46,.015); }
   margin: 22px 0 10px; padding-left: 2px;
   display: flex; align-items: center; gap: 6px;
 }
+
+/* Khung CT trong modal lớp */
+.cl-cur-tag {
+  font-size: 12px; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px;
+}
+.cl-cur-tag strong { color: var(--ink); }
+.cl-cur-warn {
+  font-size: 12px; color: var(--warn);
+  background: var(--warn-bg); border: 1px solid rgba(180,83,9,.18);
+  border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px; line-height: 1.5;
+}
+.cl-cur-warn strong { color: var(--warn); }

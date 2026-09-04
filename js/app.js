@@ -2431,6 +2431,66 @@
     const campuses = SEED.campuses || [];
     const majors = SEED.majors || [];
 
+    const KEEP = '__keep__';
+    /* Học kỳ + Môn lấy thẳng từ Khung CT · Khóa (khớp theo mã lớp).
+       Chưa có khung CT cho khóa đó thì rơi về ô nhập tay để không chặn việc tạo lớp. */
+    let curSemesterId = c?.semester || '';
+    let curSubjectCode = c?.subjectCode || '';
+    let curSubjectName = c?.subject || '';
+    let curHasProgram = false;
+
+    const curContext = () => {
+      const code = ($('#clCode')?.value ?? c?.code ?? '').trim();
+      const prog = Curriculum.programForClass(code);
+      if (!prog) return { code, prog: null, semesters: [], subjects: [] };
+      const semesters = prog.semesters || [];
+      const sem = Curriculum.semesterOf(prog, curSemesterId) || semesters[0] || null;
+      return { code, prog, sem, semesters, subjects: sem?.subjects || [] };
+    };
+
+    const curriculumBlockHtml = () => {
+      const { prog, sem, semesters, subjects } = curContext();
+      curHasProgram = !!prog;
+      if (!prog) {
+        return `<div class="cl-cur-warn">Chưa có khung chương trình khớp mã lớp này. Nhập tay bên dưới, hoặc thêm khóa tại <strong>Khung CT · Khóa</strong> rồi mở lại.</div>
+          <div class="field"><label>Môn học</label>
+            <input id="clSubject" value="${escAttr(curSubjectName)}" placeholder="Tên môn" /></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="field"><label>Mã môn (tuỳ chọn)</label>
+              <input id="clSubjectCode" value="${escAttr(curSubjectCode)}" /></div>
+            <div class="field"><label>Học kỳ</label>
+              <input id="clSemester" value="${escAttr(curSemesterId || '2025-HK2')}" placeholder="2025-HK2" /></div>
+          </div>`;
+      }
+      const semId = sem?.semesterId || '';
+      // Học kỳ / môn đang lưu mà không có trong khung CT thì giữ lại làm lựa chọn riêng —
+      // không được âm thầm đổi sang môn đầu danh sách khi admin chỉ vào sửa CVHT.
+      const semOutside = curSemesterId && !semesters.some((x) => x.semesterId === curSemesterId);
+      const byCode = subjects.find((x) => x.code === curSubjectCode);
+      const byName = subjects.find((x) => x.name === curSubjectName);
+      const subjOutside = !byCode && !byName && !!(curSubjectName || curSubjectCode);
+      const pickedCode = subjOutside ? KEEP : (byCode?.code || byName?.code || subjects[0]?.code || '');
+      const keepLabel = `${curSubjectName || curSubjectCode} · ngoài khung CT`;
+      return `<div class="cl-cur-tag">Khung CT: <strong>${esc(prog.cohortLabel || prog.cohort || '')}</strong> · ${esc(Curriculum.majorName(prog.majorId))}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field"><label>Học kỳ</label>
+            <select id="clSemester">
+              ${semOutside ? `<option value="${escAttr(curSemesterId)}" selected>${esc(Curriculum.semesterLabel(curSemesterId))} · ngoài khung CT</option>` : ''}
+              ${semesters.map((x) =>
+                `<option value="${escAttr(x.semesterId)}" ${!semOutside && x.semesterId === semId ? 'selected' : ''}>${esc(x.label || Curriculum.semesterLabel(x.semesterId))}</option>`).join('')}
+            </select></div>
+          <div class="field"><label>Môn học</label>
+            <select id="clSubject"${subjects.length || subjOutside ? '' : ' disabled'}>
+              ${subjOutside ? `<option value="${KEEP}" selected>${esc(keepLabel)}</option>` : ''}
+              ${subjects.length
+                ? subjects.map((x) =>
+                  `<option value="${escAttr(x.code)}" data-name="${escAttr(x.name)}" ${x.code === pickedCode ? 'selected' : ''}>${esc(x.name)} (${esc(x.code)})</option>`).join('')
+                : (subjOutside ? '' : '<option value="">Học kỳ này chưa có môn</option>')}
+            </select></div>
+        </div>
+        ${subjOutside ? '<div class="cl-cur-warn" style="margin:-4px 0 12px">Môn đang lưu không nằm trong khung CT của khóa này. Chọn môn trong danh sách để chuẩn hóa, hoặc để nguyên.</div>' : ''}`;
+    };
+
     $('#modalRoot').innerHTML = `<div class="modal-overlay" id="modalOv"><div class="modal" style="max-width:560px">
       <div class="modal-head"><h3>${editing ? `Sửa lớp · ${esc(c.code)}` : 'Thêm lớp mới'}</h3>
         <button class="btn btn-ghost btn-sm" id="mClose">✕</button></div>
@@ -2450,14 +2510,7 @@
             <option value="CHUYEN_NGANH" ${!isNn ? 'selected' : ''}>Chuyên ngành</option>
             <option value="NGOAI_NGU" ${isNn ? 'selected' : ''}>Ngoại ngữ</option>
           </select></div>
-        <div class="field"><label>Môn học</label>
-          <input id="clSubject" value="${escAttr(c?.subject || '')}" placeholder="Tên môn" /></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="field"><label>Mã môn (tuỳ chọn)</label>
-            <input id="clSubjectCode" value="${escAttr(c?.subjectCode || '')}" /></div>
-          <div class="field"><label>Học kỳ</label>
-            <input id="clSemester" value="${escAttr(c?.semester || '2025-HK2')}" placeholder="2025-HK2" /></div>
-        </div>
+        <div id="clCurriculumBlock">${curriculumBlockHtml()}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="field"><label>Giảng viên</label>
             <input id="clGv" value="${escAttr(c?.gvName || '')}" /></div>
@@ -2496,15 +2549,61 @@
     $('#clProg').onchange = syncProg;
     syncProg();
 
+    /* Ghi lại lựa chọn hiện tại trước khi vẽ lại, để không mất khi admin sửa mã lớp */
+    const captureCurriculum = () => {
+      const semEl = $('#clSemester');
+      const subEl = $('#clSubject');
+      if (semEl) curSemesterId = semEl.value;
+      if (curHasProgram) {
+        if (subEl && subEl.value && subEl.value !== KEEP) {
+          curSubjectCode = subEl.value;
+          const name = subEl.selectedOptions?.[0]?.dataset?.name;
+          if (name) curSubjectName = name;
+        }
+      } else {
+        if (subEl) curSubjectName = subEl.value;
+        const codeEl = $('#clSubjectCode');
+        if (codeEl) curSubjectCode = codeEl.value;
+      }
+    };
+
+    const paintCurriculum = () => {
+      captureCurriculum();
+      const wrap = $('#clCurriculumBlock');
+      if (!wrap) return;
+      wrap.innerHTML = curriculumBlockHtml();
+      const semEl = $('#clSemester');
+      // Đổi học kỳ → danh sách môn của HK đó phải đổi theo
+      if (semEl && semEl.tagName === 'SELECT') {
+        semEl.onchange = () => { curSemesterId = semEl.value; curSubjectCode = ''; paintCurriculum(); };
+      }
+    };
+    paintCurriculum();
+    $('#clCode').addEventListener('input', paintCurriculum);
+
+    const curriculumPayload = () => {
+      const semester = ($('#clSemester')?.value || '').trim();
+      if (!curHasProgram) {
+        return {
+          subject: ($('#clSubject')?.value || '').trim(),
+          subjectCode: ($('#clSubjectCode')?.value || '').trim(),
+          semester,
+        };
+      }
+      const subEl = $('#clSubject');
+      const code = (subEl?.value || '').trim();
+      if (code === KEEP) return { subject: curSubjectName, subjectCode: curSubjectCode, semester };
+      const name = subEl?.selectedOptions?.[0]?.dataset?.name;
+      return { subject: name || curSubjectName || '', subjectCode: code, semester };
+    };
+
     $('#mSave').onclick = () => {
       const payload = {
         code: $('#clCode').value,
         campusId: $('#clCampus').value,
         majorId: $('#clMajor').value,
         programType: $('#clProg').value,
-        subject: $('#clSubject').value,
-        subjectCode: $('#clSubjectCode').value,
-        semester: $('#clSemester').value,
+        ...curriculumPayload(),
         gvName: $('#clGv').value,
         tgName: $('#clTg').value,
         note: $('#clNote').value,
