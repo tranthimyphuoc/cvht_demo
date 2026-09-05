@@ -234,49 +234,61 @@ const Curriculum = {
     return `${subj.name} (${subj.code})`;
   },
 
+  /**
+   * Ngữ cảnh môn/học kỳ để HIỂN THỊ một báo cáo.
+   *
+   * Báo cáo là bản ghi đã chốt tại thời điểm gửi: tên môn, mã môn và học kỳ lưu
+   * trên chính báo cáo luôn thắng. Khung CT chỉ dùng để suy ra phần báo cáo còn
+   * thiếu (dữ liệu cũ). Nhờ vậy đổi tên môn trong Khung CT không làm báo cáo cũ
+   * đổi theo — chỉ báo cáo gửi sau khi đổi mới mang tên mới.
+   */
   resolveReportContext(report, cls) {
     const classCode = cls?.code || '';
-    const preferred = report.semesterId || cls?.semester || '';
-    const cur = this.forClass(classCode, preferred);
-    if (!cur) {
-      return {
-        semesterId: report.semesterId || cls?.semester || '',
-        semesterLabel: this.semesterLabel(report.semesterId || cls?.semester),
-        subjectCode: report.subjectCode || cls?.subjectCode || '',
-        subjectName: report.subjectName || report.subject || cls?.subject || '—',
-        cohort: this.cohortFromClassCode(classCode),
-      };
-    }
-    let subjectCode = report.subjectCode || cls?.subjectCode;
-    let subjectName = report.subjectName || report.subject || cls?.subject;
-    let semesterId = report.semesterId || cls?.semester || cur.semesterId;
+    const ownName = String(report?.subjectName || report?.subject || '').trim();
+    const ownCode = String(report?.subjectCode || '').trim();
+    const ownSem = String(report?.semesterId || '').trim();
+    const selfDescribed = !!(ownName || ownCode);
 
-    if (subjectCode) {
-      const found = this.subjectByCode(classCode, subjectCode);
-      if (found) {
-        subjectName = found.name;
-        if (!report.semesterId) semesterId = found.semesterId || semesterId;
+    const cur = this.forClass(classCode, ownSem || cls?.semester || '');
+    let subjectCode = ownCode;
+    let subjectName = ownName;
+    let semesterId = ownSem;
+
+    if (!selfDescribed) {
+      // Báo cáo không lưu gì về môn → đành suy từ lớp + khung CT hiện tại
+      subjectCode = String(cls?.subjectCode || '').trim();
+      subjectName = String(cls?.subject || '').trim();
+      if (!subjectCode && subjectName && cur) {
+        const hit = cur.subjects.find((s) => s.name === subjectName);
+        if (hit) subjectCode = hit.code;
       }
-    } else if (subjectName) {
-      const hit = cur.subjects.find((s) => s.name === subjectName || subjectName.includes(s.code));
-      if (hit) {
-        subjectCode = hit.code;
-        subjectName = hit.name;
+      if (!subjectCode && !subjectName && cur?.subjects?.[0]) {
+        subjectCode = cur.subjects[0].code;
+        subjectName = cur.subjects[0].name;
       }
+    } else if (!subjectName && subjectCode) {
+      // Chỉ lưu mã, chưa lưu tên → tra tên hiện có (tốt nhất trong khả năng)
+      subjectName = this.subjectByCode(classCode, subjectCode)?.name || '';
+    } else if (subjectName && !subjectCode && cur) {
+      // Chỉ lưu tên → dò mã để lọc/thống kê chạy được, nhưng KHÔNG ghi đè tên
+      const hit = cur.subjects.find((s) => s.name === subjectName);
+      if (hit) subjectCode = hit.code;
     }
-    if (!subjectCode && cur.subjects[0]) {
-      subjectCode = cur.subjects[0].code;
-      subjectName = cur.subjects[0].name;
+
+    if (!semesterId) {
+      const found = subjectCode ? this.subjectByCode(classCode, subjectCode) : null;
+      semesterId = found?.semesterId || cls?.semester || cur?.semesterId || '';
     }
-    const sem = this.semesterOf(cur, semesterId) || cur.semesters?.[0];
+
+    const sem = cur ? this.semesterOf(cur, semesterId) : null;
     return {
-      semesterId: semesterId || sem?.semesterId || cur.semesterId,
+      semesterId,
       semesterLabel: sem?.label || this.semesterLabel(semesterId),
       subjectCode,
       subjectName: subjectName || '—',
-      cohort: cur.cohort,
-      cohortLabel: cur.cohortLabel,
-      programId: cur.programId,
+      cohort: cur?.cohort || this.cohortFromClassCode(classCode),
+      cohortLabel: cur?.cohortLabel,
+      programId: cur?.programId,
     };
   },
 

@@ -156,6 +156,26 @@
     }
     return c.subject || majorName(c.majorId) || '—';
   }
+
+  /**
+   * Ảnh chụp môn + học kỳ của lớp tại thời điểm gửi báo cáo.
+   * Chốt cứng vào báo cáo để sau này đổi tên môn trong Khung CT, hoặc đổi môn của
+   * lớp, đều không làm báo cáo cũ nhảy theo. BC Bí thư / Lớp trưởng đã có sẵn
+   * ngữ cảnh riêng (reportContextFields); hàm này dùng cho BC NN và BC tổng hợp CVHT.
+   */
+  function classSubjectSnapshot(cls) {
+    const name = subjectOf(cls);
+    let code = String(cls?.subjectCode || '').trim();
+    const cur = Curriculum.forClass(cls?.code, cls?.semester);
+    if (!code && cur) code = cur.subjects.find((x) => x.name === name)?.code || '';
+    const found = code ? Curriculum.subjectByCode(cls?.code, code) : null;
+    return {
+      subject: name,
+      subjectName: name,
+      subjectCode: code,
+      semesterId: String(cls?.semester || '').trim() || found?.semesterId || cur?.semesterId || '',
+    };
+  }
   function classLabel(c) {
     if (!c) return '—';
     return `${c.code} · ${subjectOf(c)}`;
@@ -3095,9 +3115,10 @@
             ? 'Chỉ hiển thị báo cáo do bạn gửi'
             : 'Chưa có báo cáo';
         $('#tabBody').innerHTML = reports.length ? `<div class="panel"><div class="table-wrap"><table>
-          <thead><tr><th>Loại</th><th>Người gửi</th><th>Điểm</th><th>TT</th><th></th></tr></thead>
+          <thead><tr><th>Loại</th><th>Môn</th><th>Người gửi</th><th>Điểm</th><th>TT</th><th></th></tr></thead>
           <tbody>${reports.map((r) => `<tr>
             <td>${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</td>
+            <td style="font-size:12.5px">${esc(reportSubjectLine(r, classById(r.classId)))}</td>
             <td>${userName(r.reporterId)}</td>
             <td>${r.totalScore ?? '—'}</td>
             <td>${statusBadge(r)}</td>
@@ -3319,7 +3340,7 @@
               status, formData, isLate, attachments,
               totalScore: total,
               summaryNote,
-              subject: subjectOf(cls),
+              ...classSubjectSnapshot(cls),
               updatedAt: now.toISOString(),
               submittedAt: status !== 'DRAFT' ? now.toISOString() : null,
               recipientRole: 'CVHT',
@@ -3330,7 +3351,7 @@
             d.reports.unshift({
               id: reportId,
               classId: cls.id,
-              subject: subjectOf(cls),
+              ...classSubjectSnapshot(cls),
               reporterId: user.id,
               reportKind: 'LOP_TRUONG_NN',
               reportType: 'TUAN',
@@ -3441,7 +3462,7 @@
           <div class="panel-body">${ltReports.map((r) => `
             <label class="check-row">
               <input type="checkbox" data-link="${r.id}" checked />
-              <span>${userName(r.reporterId)} · ${REPORT_KIND_LABELS[r.reportKind] || ''} · ${r.totalScore != null ? r.totalScore + '/100' : 'NN'} · ${statusBadge(r)}
+              <span>${userName(r.reporterId)} · ${REPORT_KIND_LABELS[r.reportKind] || ''} · ${esc(reportSubjectLine(r, cls))} · ${r.totalScore != null ? r.totalScore + '/100' : 'NN'} · ${statusBadge(r)}
               <div style="font-size:12px;color:var(--muted)">${esc(r.summaryNote || r.activityNote || '')}</div></span>
             </label>`).join('')}</div></div>` : ''}
         ${visits.length ? `<div class="panel"><div class="panel-head"><h2>Buổi vào lớp gần đây</h2></div>
@@ -3525,7 +3546,7 @@
             Object.assign(existing, {
               status, formData, linkedReportIds, attachments,
               summaryNote,
-              subject: subjectOf(cls),
+              ...classSubjectSnapshot(cls),
               updatedAt: now,
               submittedAt: status === 'SENT_TO_QLDT' ? now : null,
               recipientRole: 'QLDT',
@@ -3536,7 +3557,7 @@
             d.reports.unshift({
               id: reportId,
               classId: cls.id,
-              subject: subjectOf(cls),
+              ...classSubjectSnapshot(cls),
               reporterId: Store.realId(user),
               reportKind: 'CVHT_TONG_HOP',
               reportType: 'TUAN',
@@ -4023,7 +4044,7 @@
         <tbody>${list.length ? list.map((r) => `
           <tr>
             <td><strong>${classById(r.classId)?.code}</strong></td>
-            <td style="font-size:12.5px">${esc(r.subject || subjectOf(classById(r.classId)))}</td>
+            <td style="font-size:12.5px">${esc(reportSubjectLine(r, classById(r.classId)))}</td>
             <td style="font-size:12.5px">${REPORT_KIND_LABELS[r.reportKind] || r.reportKind}</td>
             <td>${userName(r.reporterId)}</td>
             <td>${r.totalScore ?? '—'}</td>
@@ -4393,7 +4414,7 @@
               <div class="rd-linked-head">
                 <strong>${esc(REPORT_KIND_LABELS[src.reportKind] || src.reportKind)}</strong>
                 ${statusBadge(src)}
-                <span class="who">${esc(userName(src.reporterId))}${src.totalScore != null ? ` · ${src.totalScore}/100` : ''}</span>
+                <span class="who">${esc(reportSubjectLine(src, classById(src.classId)))} · ${esc(userName(src.reporterId))}${src.totalScore != null ? ` · ${src.totalScore}/100` : ''}</span>
               </div>
               ${note ? `<div class="rd-prose muted">${esc(note)}</div>` : ''}
               ${links.length ? `<div class="attach-files">${links.map((a) => attachRowHtml(a)).join('')}</div>`
